@@ -55,6 +55,22 @@ public class LocalGameMap {
         this.activeWorldFolder = null;
     }
 
+    public boolean saveActiveToSource() {
+        if (activeWorldFolder == null || !activeWorldFolder.exists()) {
+            return false;
+        }
+        try {
+            if (sourceWorldFolder.exists()) {
+                FileUtils.deleteDirectory(sourceWorldFolder);
+            }
+            FileUtils.copyDirectory(activeWorldFolder, sourceWorldFolder);
+            return true;
+        } catch (IOException e) {
+            GPTGOD.LOGGER.error("Saving active world back to source failed", e);
+            return false;
+        }
+    }
+
     public boolean restoreFromSource() {
         unload();
         return load();

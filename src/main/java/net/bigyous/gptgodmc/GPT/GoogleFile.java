@@ -9,6 +9,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpRequest.Builder;
 import java.net.http.HttpResponse.BodyHandlers;
+import java.util.Base64;
 
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -37,11 +38,37 @@ public class GoogleFile {
     private String uriResult;
 
     public String getUri() {
-        return this.uriResult;
+        if (this.uriResult != null) {
+            return this.uriResult;
+        }
+        return getDataUrl();
     }
 
     public String getMimeType() {
         return mimeType;
+    }
+
+    public byte[] getBytes() {
+        if (bytes != null) {
+            return bytes;
+        }
+        if (filePath == null) {
+            return new byte[0];
+        }
+        try {
+            return Files.readAllBytes(filePath);
+        } catch (IOException e) {
+            GPTGOD.LOGGER.error("Failed to read file bytes for " + filePath, e);
+            return new byte[0];
+        }
+    }
+
+    public String getDataUrl() {
+        byte[] data = getBytes();
+        if (data.length == 0 || mimeType == null || mimeType.isBlank()) {
+            return null;
+        }
+        return "data:" + mimeType + ";base64," + Base64.getEncoder().encodeToString(data);
     }
 
     public GoogleFile(Path filePath) {

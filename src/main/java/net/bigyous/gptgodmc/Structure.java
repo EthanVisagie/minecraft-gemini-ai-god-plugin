@@ -25,6 +25,8 @@ public class Structure {
     private World world;
     private CiritiqueStatus critiqueStatus = CiritiqueStatus.UNDECIDED;
     private String description = "";
+    private boolean sacred = false;
+    private boolean sacredAwakened = false;
 
     // for tracking when to recalculate the centroid
     private static final int minimumBlocksForRecalculate = 4;
@@ -35,6 +37,7 @@ public class Structure {
         this.blocks = new HashSet<Vector>();
         this.addBlock(block);
         this.builder = builder;
+        this.name = name;
         this.location = null;
         this.world = block.getWorld();
     }
@@ -53,6 +56,14 @@ public class Structure {
 
     public String getDescription() {
         return this.description;
+    }
+
+    public boolean isSacred() {
+        return sacred;
+    }
+
+    public boolean isSacredAwakened() {
+        return sacredAwakened;
     }
 
     public boolean containsBlock(Location block) {
@@ -87,6 +98,14 @@ public class Structure {
         this.name = name;
     }
 
+    public void setSacred(boolean sacred) {
+        this.sacred = sacred;
+    }
+
+    public void setSacredAwakened(boolean sacredAwakened) {
+        this.sacredAwakened = sacredAwakened;
+    }
+
     private Location calculateCentroid() {
         double x = 0;
         double y = 0;
@@ -118,7 +137,7 @@ public class Structure {
     }
 
     public double getDistanceTo(Location to) {
-        return location.distance(this.getLocation());
+        return to.distance(this.getLocation());
     }
 
     public int getDistanceToI(Location to) {

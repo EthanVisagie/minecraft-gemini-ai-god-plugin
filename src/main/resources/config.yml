@@ -1,13 +1,33 @@
 # Configuration file for gptgodmc
 # Make sure you update this before running!
 
-# google gemini api key for main and secondary llm
-# the plugin won't work without this
+# Main model provider for the gameplay loop: codex, openai, or gemini.
+model-provider: codex
+
+# Secondary text provider for command generation and summaries: openai or gemini.
+secondary-model-provider: gemini
+
+# Camera vision provider: codex, openai, or gemini.
+vision-model-provider: codex
+
+# google gemini api key for Gemini-powered features like voice transcription.
 # https://aistudio.google.com/
 geminiKey: ""
 
 # for tts. Get key from https://console.sws.speechify.com/api-keys
 speechify-key: ""
+
+# Optional OpenAI/Codex API auth for the main OpenAI provider, legacy OpenAI TTS, and moderation helpers.
+# Prefer setting OPENAI_API_KEY in the server environment; config values are also supported.
+openAiKey: ""
+openai-api-key: ""
+codex-api-key: ""
+
+# OpenAI reasoning effort for GPT-5 style models: none, low, medium, high, or xhigh.
+openai-reasoning-effort: low
+
+# Codex OAuth auth file, used when provider is codex. Leave empty to use ~/.codex/auth.json.
+codex-auth-file: ""
 
 # language in ISO-639 format https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes
 language: en
@@ -24,28 +44,31 @@ Rounds: true
 # if empty or invalid the Round System won't work
 startingWorld: "island"
 
-# gemini main model name
-# use gemini-1.5-flash for more rapid and cheaper responses
-# or use gemini-1.5-pro for more context and brains
-model-name: gemini-1.5-flash
+# main model name. For OpenAI provider, gpt-5.5 is the default frontier model.
+# For Gemini provider, use gemini-1.5-flash or gemini-1.5-pro.
+model-name: gpt-5.5
 
-# secondary model (for transcriptions and command gen)
-# recomended models gemini-1.5-flash or the new gemini-1.5-flash-8b
+# secondary model for text-only secondary tasks.
 secondary-model-name: gemini-1.5-flash-8b
+
+# vision model. OpenAI vision uses image input through the Responses API.
+vision-model-name: gpt-5.5
 
 # Gemini Model tempurature
 # turn up the heat
 # 1.0 or below is more behaved, above is more creative
-model-tempurature: 1.6
+model-tempurature: 0.85
 
-# Gemini model token limit
-# flash can have up to 1mil and pro up to 2mil
-gpt-model-token-limit: 1000000
+# main model token limit
+gpt-model-token-limit: 1050000
 
 # token limit for secondary model
 gpt-secondary-token-limit: 1000000
 
-# whether or not the mod will make calls to Gemini
+# token limit for vision model
+gpt-vision-token-limit: 1050000
+
+# whether or not the mod will make calls to the configured AI providers
 enabled: true
 
 # The gamemode, here are the current options:
@@ -53,7 +76,7 @@ enabled: true
 #[SANDBOX, DEATHMATCH]
 gamemode: SANDBOX
 
-# The potential behaviors to be given to Gemini. A specified amount will be chosen to either be liked, or disliked.
+# The potential behaviors to be given to the model. A specified amount will be chosen to either be liked, or disliked.
 potentialBehaviors:
   [
     "killing animals",
@@ -111,14 +134,7 @@ speechify-voice: benjamin
 
 # write your own game-mode prompt here instead of the deafault game-mode prompt
 promptOverride: ""
-# old gpt configurations
-
-# your OpenAi API key from https://platform.openai.com/api-keys
-# if openai chatgpt is enabled
-# openAiKey: ""
-# name of the gpt model to use (in the case that gpt is enabled)
-# can be found here: https://openai.com/api/pricing/
-# gpt-model-name: gpt-4o
+# old gpt configurations. OpenAI auth and model provider settings are now defined near the top of this file.
 # The voice used by the TTS
 # https://platform.openai.com/docs/guides/text-to-speech/voice-options
 #voice: onyx

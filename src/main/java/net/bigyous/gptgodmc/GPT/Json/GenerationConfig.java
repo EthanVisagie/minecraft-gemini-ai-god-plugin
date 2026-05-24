@@ -14,4 +14,8 @@ public class GenerationConfig {
     public GenerationConfig(double temp) {
         this.temperature = temp;
     }
+
+    public double getTemperature() {
+        return temperature;
+    }
 }

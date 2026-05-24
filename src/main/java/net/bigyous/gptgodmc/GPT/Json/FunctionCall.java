@@ -7,10 +7,17 @@ import net.bigyous.gptgodmc.utils.GPTUtils;
 public class FunctionCall {
     private String name;
     private JsonObject args;
+    private transient String callId;
 
     public FunctionCall(String name, JsonObject args) {
         this.name = name;
         this.args = args;
+    }
+
+    public FunctionCall(String name, JsonObject args, String callId) {
+        this.name = name;
+        this.args = args;
+        this.callId = callId;
     }
 
     public JsonObject getArguments() {
@@ -19,6 +26,10 @@ public class FunctionCall {
 
     public String getName() {
         return name;
+    }
+
+    public String getCallId() {
+        return callId;
     }
 
     public int calculateFunctionTokens() {

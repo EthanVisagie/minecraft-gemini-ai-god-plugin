@@ -33,7 +33,8 @@ public class SummarizeLogs {
                         "submitSummary", "input the summary, keep the summary below 1000 tokens",
                         new Schema(Map.of("summary", new Schema(Schema.Type.STRING, "the summary"))), submitSummary));
         private static Tool tools = GptActions.wrapFunctions(functionMap);
-        private static GptAPI gpt = new GptAPI(GPTModels.getSecondaryModel(), tools)
+        private static ModelProvider provider = GPTModels.getSecondaryProvider();
+        private static GptAPI gpt = new GptAPI(GPTModels.getSecondaryModel(provider), provider, tools)
                         .setSystemContext(String.format(context, String.join(",", Personality.getLikes()),
                                         String.join(",", Personality.getDislikes())))
                         .setToolChoice("submitSummary");

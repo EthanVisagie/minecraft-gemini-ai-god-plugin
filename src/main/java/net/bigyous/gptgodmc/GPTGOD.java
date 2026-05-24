@@ -24,6 +24,9 @@ import net.bigyous.gptgodmc.aitest.AiTestCommand;
 import net.bigyous.gptgodmc.cameraitem.CameraItemListener;
 import net.bigyous.gptgodmc.cameraitem.GiveCameraCommand;
 import net.bigyous.gptgodmc.enums.GptGameMode;
+import net.bigyous.gptgodmc.GPT.GptActions;
+import net.bigyous.gptgodmc.memory.MemoryStore;
+import net.bigyous.gptgodmc.reactions.ReactionListener;
 import net.bigyous.gptgodmc.utils.DebugCommand;
 import net.bigyous.gptgodmc.utils.NicknameCommand;
 import net.kyori.adventure.text.Component;
@@ -60,6 +63,7 @@ public final class GPTGOD extends JavaPlugin {
         this.saveDefaultConfig();
         getConfig().options().copyDefaults(true);
         saveConfig();
+        MemoryStore.init();
         getCommand("try").setExecutor(new DebugCommand());
         getCommand("nickname").setExecutor(new NicknameCommand());
         getCommand("givecamera").setExecutor(new GiveCameraCommand());
@@ -76,10 +80,15 @@ public final class GPTGOD extends JavaPlugin {
 
         }
         gameMode = GptGameMode.valueOf(getConfig().getString("gamemode"));
-        SERVER.getPluginManager().registerEvents(new LoggableEventHandler(), this);
+        if (getConfig().getBoolean("enabled")) {
+            SERVER.getPluginManager().registerEvents(new LoggableEventHandler(), this);
+            SERVER.getPluginManager().registerEvents(new ReactionListener(), this);
+            SERVER.getPluginManager().registerEvents(new StartGameLoop(), this);
+            SERVER.getPluginManager().registerEvents(new StructureManager(), this);
+        } else {
+            LOGGER.info("gptgodmc AI features disabled by config; skipping god listeners");
+        }
         SERVER.getPluginManager().registerEvents(new CameraItemListener(), this);
-        SERVER.getPluginManager().registerEvents(new StartGameLoop(), this);
-        SERVER.getPluginManager().registerEvents(new StructureManager(), this);
 
         ScoreboardManager manager = Bukkit.getScoreboardManager();
         SCOREBOARD = manager.getNewScoreboard();
@@ -113,8 +122,12 @@ public final class GPTGOD extends JavaPlugin {
     private static class StartGameLoop implements Listener {
         @EventHandler
         public void onPlayerJoin(PlayerJoinEvent event) {
+            if (!JavaPlugin.getPlugin(GPTGOD.class).getConfig().getBoolean("enabled")) {
+                return;
+            }
             GameLoop.init();
             event.getPlayer().setScoreboard(SCOREBOARD);
+            GptActions.restoreObjectiveDisplayState();
 
         }
 

@@ -28,6 +28,7 @@ import org.bukkit.event.player.PlayerPortalEvent;
 import com.destroystokyo.paper.event.player.PlayerPostRespawnEvent;
 
 import net.bigyous.gptgodmc.enums.GptGameMode;
+import net.bigyous.gptgodmc.GPT.GptActions;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.title.Title;
@@ -63,6 +64,17 @@ public class RoundSystem implements Listener {
             return;
         Player player = event.getPlayer();
         Server server = player.getServer();
+
+        if (!GPTGOD.gameMode.equals(GptGameMode.DEATHMATCH)) {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (!player.isOnline()) {
+                    return;
+                }
+                revivePlayer(player);
+            }, 40L);
+            return;
+        }
+
         player.setGameMode(GameMode.SPECTATOR);
         Bukkit.getScheduler().runTask(plugin, () -> {
             player.getLocation().getBlock().setType(Material.PLAYER_HEAD);
@@ -70,31 +82,28 @@ public class RoundSystem implements Listener {
             playerSkull.setOwningPlayer(player);
             playerSkull.update(true);
         });
-
-        if (GPTGOD.gameMode.equals(GptGameMode.DEATHMATCH)) {
-            long living_red = GPTGOD.RED_TEAM.getEntries().stream()
-                    .filter((String name) -> (server.getPlayer(name) != null
-                            && !server.getPlayer(name).getGameMode().equals(GameMode.SPECTATOR)))
-                    .count();
-            long living_blue = GPTGOD.BLUE_TEAM.getEntries().stream()
-                    .filter((String name) -> (server.getPlayer(name) != null
-                            && !server.getPlayer(name).getGameMode().equals(GameMode.SPECTATOR)))
-                    .count();
-            Title title = living_red < 1 && living_blue < 1
-                    ? Title.title(Component.text("NO ONE WINS").color(NamedTextColor.YELLOW),
-                            Component.text("Your death was is vain.").color(NamedTextColor.RED))
-                    : living_red < 1
-                            ? Title.title(Component.text("BLUE WINS").color(NamedTextColor.BLUE),
-                                    Component.text(String.format("%d players remaining", living_blue)))
-                            : living_blue < 1 ? Title.title(Component.text("RED WINS").color(NamedTextColor.RED),
-                                    Component.text(String.format("%d players remaining", living_red))) : null;
-            if (title != null && !roundOver) {
-                server.showTitle(title);
-                // Bukkit.getScheduler().runTaskLater(plugin, () ->{
-                // GptActions.executeCommand("kill @e"); reset();}, 5);
-                roundOver = true;
-                return;
-            }
+        long living_red = GPTGOD.RED_TEAM.getEntries().stream()
+                .filter((String name) -> (server.getPlayer(name) != null
+                        && !server.getPlayer(name).getGameMode().equals(GameMode.SPECTATOR)))
+                .count();
+        long living_blue = GPTGOD.BLUE_TEAM.getEntries().stream()
+                .filter((String name) -> (server.getPlayer(name) != null
+                        && !server.getPlayer(name).getGameMode().equals(GameMode.SPECTATOR)))
+                .count();
+        Title title = living_red < 1 && living_blue < 1
+                ? Title.title(Component.text("NO ONE WINS").color(NamedTextColor.YELLOW),
+                        Component.text("Your death was is vain.").color(NamedTextColor.RED))
+                : living_red < 1
+                        ? Title.title(Component.text("BLUE WINS").color(NamedTextColor.BLUE),
+                                Component.text(String.format("%d players remaining", living_blue)))
+                        : living_blue < 1 ? Title.title(Component.text("RED WINS").color(NamedTextColor.RED),
+                                Component.text(String.format("%d players remaining", living_red))) : null;
+        if (title != null && !roundOver) {
+            server.showTitle(title);
+            // Bukkit.getScheduler().runTaskLater(plugin, () ->{
+            // GptActions.executeCommand("kill @e"); reset();}, 5);
+            roundOver = true;
+            return;
         }
 
         for (Player p : server.getOnlinePlayers()) {
@@ -160,6 +169,7 @@ public class RoundSystem implements Listener {
         GPTGOD.SCOREBOARD.getEntries().forEach(entry -> {
             GPTGOD.GPT_OBJECTIVES.getScore(entry).resetScore();
         });
+        GptActions.resetObjectiveDisplayState();
 
         for (Player p : reorderedPlayers) {
             revivePlayer(p);

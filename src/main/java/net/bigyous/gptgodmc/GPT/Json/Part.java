@@ -1,6 +1,7 @@
 package net.bigyous.gptgodmc.GPT.Json;
 
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.JsonObject;
 
 import net.bigyous.gptgodmc.utils.GPTUtils;
 
@@ -16,11 +17,16 @@ public class Part {
     @SerializedName("functionCall")
     private FunctionCall functionCall;
 
-    // @SerializedName("functionResponse")
-    // private FunctionResponse functionResponse;
+    @SerializedName("functionResponse")
+    private FunctionResponse functionResponse;
 
     @SerializedName("fileData")
     private FileData fileData;
+
+    @SerializedName("thoughtSignature")
+    private String thoughtSignature;
+
+    private transient JsonObject openAIResponseItem;
 
     // @SerializedName("executableCode")
     // private ExecutableCode executableCode;
@@ -36,6 +42,26 @@ public class Part {
         return functionCall;
     }
 
+    public FunctionResponse getFunctionResponse() {
+        return functionResponse;
+    }
+
+    public String getThoughtSignature() {
+        return thoughtSignature;
+    }
+
+    public String getFileDataMimeType() {
+        return fileData == null ? null : fileData.getMimeType();
+    }
+
+    public String getFileDataUri() {
+        return fileData == null ? null : fileData.getFileUri();
+    }
+
+    public JsonObject getOpenAIResponseItem() {
+        return openAIResponseItem;
+    }
+
     // constructors for the various union types
     public Part(String text) {
         this.text = text;
@@ -49,14 +75,34 @@ public class Part {
         this.functionCall = function;
     }
 
+    public Part(FunctionResponse functionResponse) {
+        this.functionResponse = functionResponse;
+    }
+
+    public Part(JsonObject openAIResponseItem) {
+        this.openAIResponseItem = openAIResponseItem;
+    }
+
     // calculates and returns the token count of this part
     public int countTokens() {
+        int count = 0;
         if (text != null) {
-            return GPTUtils.countTokens(text);
+            count += GPTUtils.countTokens(text);
         } else if (functionCall != null) {
-            return functionCall.calculateFunctionTokens();
+            count += functionCall.calculateFunctionTokens();
+        } else if (functionResponse != null) {
+            count += functionResponse.calculateFunctionTokens();
+        } else if (fileData != null) {
+            count += fileData.countTokens();
+        } else if (openAIResponseItem != null) {
+            count += GPTUtils.countTokens(openAIResponseItem.toString());
         }
-        return 0;
+
+        if (thoughtSignature != null) {
+            count += GPTUtils.countTokens(thoughtSignature);
+        }
+
+        return count;
     }
 }
 

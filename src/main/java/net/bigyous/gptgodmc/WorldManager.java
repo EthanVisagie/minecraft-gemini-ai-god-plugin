@@ -56,6 +56,7 @@ public class WorldManager {
             currentGameMap.getWorld().setGameRule(GameRule.DO_WEATHER_CYCLE, true);
             currentGameMap.getWorld().setGameRule(GameRule.DO_DAYLIGHT_CYCLE, true);
             currentGameMap.getWorld().setGameRule(GameRule.DISABLE_RAIDS, true);
+            currentGameMap.getWorld().setGameRule(GameRule.SEND_COMMAND_FEEDBACK, false);
             return true;
         } else {
             GPTGOD.LOGGER.warn(String.format("mapName %s does not exist in %s", mapName, WORLD_FOLDER.toString()));
@@ -78,6 +79,10 @@ public class WorldManager {
     public static void unload() {
         if (currentGameMap == null) {
             return;
+        }
+        if (currentGameMap.getWorld() != null) {
+            currentGameMap.getWorld().save();
+            currentGameMap.saveActiveToSource();
         }
         currentGameMap.unload();
         GPTGOD.LOGGER.info(String.format("Map %s has been unloaded", currentGameMap.getWorldName()));

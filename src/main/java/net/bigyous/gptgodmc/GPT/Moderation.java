@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
 
-import org.apache.http.HttpHeaders;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.ContentType;
@@ -12,7 +11,6 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
-import org.bukkit.plugin.java.JavaPlugin;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -34,14 +32,16 @@ public class Moderation {
         }
         CloseableHttpClient client = HttpClientBuilder.create().build();
         Thread worker = new Thread(() -> {
-            String auth = JavaPlugin.getPlugin(GPTGOD.class).getConfig().getString("openAiKey");
             TypeToken<Map<String, String>> mapType = new TypeToken<Map<String, String>>() {
             };
             String payload = gson.toJson(Collections.singletonMap("input", input), mapType.getType());
             try {
                 StringEntity data = new StringEntity(payload, ContentType.APPLICATION_JSON);
                 HttpPost post = new HttpPost(MODERATION_URL);
-                post.setHeader(HttpHeaders.AUTHORIZATION, "Bearer " + auth);
+                if (!OpenAIAuth.applyBearerAuth(post)) {
+                    GPTGOD.LOGGER.warn(OpenAIAuth.missingApiKeyMessage() + " Skipping OpenAI moderation request.");
+                    return;
+                }
                 post.setEntity(data);
                 HttpResponse response = client.execute(post);
                 String raw = new String(response.getEntity().getContent().readAllBytes());

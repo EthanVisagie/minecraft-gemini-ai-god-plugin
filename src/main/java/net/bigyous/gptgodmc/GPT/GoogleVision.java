@@ -81,7 +81,7 @@ public class GoogleVision {
     // private static TaskQueue<DescribeStructureRequest> describeStructureQueue =
     // new TaskQueue<>((DescribeStructureRequest buffer) -> {});
 
-    // handles the results when gemini vision finishes processing
+    // handles the results when the configured vision provider finishes processing
     private static SimpFunction<JsonObject> describeStructure = (JsonObject args) -> {
         GPTGOD.LOGGER.info("received vision response: " + args.toString());
         DescribeStructureParams params = gson.fromJson(args, DescribeStructureParams.class);
@@ -159,7 +159,8 @@ public class GoogleVision {
                                     "The executive decision on wether or not this structure is ugly or not in it's current state. Return a value of true to indicate that you think it is ugly, or false if it is pretty."))),
                     critiquePhoto));
     private static Tool tools = GptActions.wrapFunctions(functionMap);
-    private static GptAPI gpt = new GptAPI(GPTModels.getSecondaryModel(), tools).setSystemContext("""
+    private static ModelProvider provider = GPTModels.getVisionProvider();
+    private static GptAPI gpt = new GptAPI(GPTModels.getVisionModel(provider), provider, tools).setSystemContext("""
             You are a helpful assistant that will generate opinions and descriptions about minecraft structures.
             Using the provided renderings of Minecraft structures,
             please answer the below questions succinctly excluding
@@ -171,6 +172,10 @@ public class GoogleVision {
             You MUST choose one or the other and explain. Do not base this decision on chance.
             Only use a tool call in one json response, other responses will be ignored.
             """).setTools(tools).setToolChoice("describeStructure");
+
+    public static boolean requiresGeminiUpload() {
+        return provider == ModelProvider.GEMINI;
+    }
 
     // have the ai model rate a structure with multiple different camera angles
     // available to it

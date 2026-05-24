@@ -22,8 +22,12 @@ class AsyncTask<T, V> implements Function<ExecutorService, CompletableFuture<V>>
     public CompletableFuture<V> apply(ExecutorService pool) {
         CompletableFuture<V> theFuture = new CompletableFuture<>();
         pool.submit(() -> {
-            this.task.run(object);
-            theFuture.complete(null);
+            try {
+                this.task.run(object);
+                theFuture.complete(null);
+            } catch (Throwable e) {
+                theFuture.completeExceptionally(e);
+            }
         });
 
         return theFuture;

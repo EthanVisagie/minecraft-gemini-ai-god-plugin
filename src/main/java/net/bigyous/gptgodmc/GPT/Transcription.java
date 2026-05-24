@@ -72,7 +72,7 @@ public class Transcription {
             return;
         }
 
-        GptAPI gpt = new GptAPI(GPTModels.getSecondaryModel(), tools)
+        GptAPI gpt = new GptAPI(GPTModels.getSecondaryModel(ModelProvider.GEMINI), ModelProvider.GEMINI, tools)
                 .setSystemContext(
                         """
                                 you are a voice chat transcriber. You will receive a series of voice chat inputs from various players in series with a minecraft 24hr time marker ([HH:MM]).
@@ -101,7 +101,7 @@ public class Transcription {
         }
 
         String apiKey = config.getString("geminiKey");
-        GptModel model = GPTModels.getSecondaryModel();
+        GptModel model = GPTModels.getSecondaryModel(ModelProvider.GEMINI);
 
         try {
             GoogleFile file = new GoogleFile(audioPath);

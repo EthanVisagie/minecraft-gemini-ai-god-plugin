@@ -125,7 +125,7 @@ public class ImageUtils {
                 // raw png image bytes
                 byte[] bytes = baos.toByteArray();
                 GoogleFile upload = new GoogleFile(bytes, "image/png", pictureName);
-                if (upload.tryUpload()) {
+                if (!GoogleVision.requiresGeminiUpload() || upload.tryUpload()) {
                     resultCallback.run(new PictureCallbackData(img, upload));
                 } else {
                     GPTGOD.LOGGER.warn("failed to upload picture of " + pictureName);
@@ -172,7 +172,7 @@ public class ImageUtils {
             String creatorName = closestStructure == null ? "UNKNOWN" : closestStructure.getBuilder().getName();
             givePhoto(result.imageBytes, player, creatorName, player.getName(), subjectName);
 
-            // call gemini vision api with our user generated photography
+            // call the configured vision provider with our user generated photography
             GoogleVision.lookAtPhoto(player.getName(),
                     StructureManager.getStructureDescription(closestStructure, pictureCenter), result.uploadedFile);
         });

@@ -10,4 +10,8 @@ public class ToolConfig {
     public ToolConfig(FunctionCallingConfig.Mode mode, String[] allowedFunctionNames) {
         this.functionCallingConfig = new FunctionCallingConfig(mode, allowedFunctionNames);
     }
+
+    public FunctionCallingConfig getFunctionCallingConfig() {
+        return functionCallingConfig;
+    }
 }

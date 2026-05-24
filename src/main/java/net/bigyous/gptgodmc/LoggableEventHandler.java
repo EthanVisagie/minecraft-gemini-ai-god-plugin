@@ -25,7 +25,9 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.Listener;
+import org.bukkit.entity.Player;
 
+import net.bigyous.gptgodmc.awareness.PlayerIntentTracker;
 import net.bigyous.gptgodmc.loggables.AchievementLoggable;
 import net.bigyous.gptgodmc.loggables.AttackLoggable;
 import net.bigyous.gptgodmc.loggables.DamageLoggable;
@@ -63,14 +65,16 @@ public class LoggableEventHandler implements Listener {
     @EventHandler
     public static void pickupItem(PlayerAttemptPickupItemEvent event) {
         // EventLogger.addEvent(event);
+        PlayerIntentTracker.recordPickup(event.getPlayer(), event.getItem().getItemStack());
         EventLogger.addLoggable(new ItemPickupLoggable(event));
     }
 
     @EventHandler
     public static void onChat(AsyncChatEvent event) {
-
+        String message = ((TextComponent) event.message()).content();
+        PlayerIntentTracker.recordChat(event.getPlayer(), message);
         EventLogger.addLoggable(new ChatLoggable(event.getPlayer().getName(),
-                GPTUtils.getPlayerTimeStamp(event.getPlayer()), ((TextComponent) event.message()).content()));
+                GPTUtils.getPlayerTimeStamp(event.getPlayer()), message));
         // dbg: dump logs
         // GPTGOD.LOGGER.info("=== DUMPED LOGS: ===");
         // GPTGOD.LOGGER.info(EventLogger.debugOut());
@@ -79,21 +83,29 @@ public class LoggableEventHandler implements Listener {
 
     @EventHandler
     public static void onAttackEntity(EntityDamageByEntityEvent event) {
+        if (event.getDamager() instanceof Player player) {
+            PlayerIntentTracker.recordAttack(player, event.getEntity());
+        }
         EventLogger.addLoggable(new AttackLoggable(event));
     }
 
     @EventHandler
     public static void onDamage(EntityDamageEvent event) {
+        if (event.getEntity() instanceof Player player) {
+            PlayerIntentTracker.recordDamage(player, event.getDamage());
+        }
         EventLogger.addLoggable(new DamageLoggable(event));
     }
 
     @EventHandler
     public static void onDrop(PlayerDropItemEvent event) {
+        PlayerIntentTracker.recordDrop(event.getPlayer(), event.getItemDrop().getItemStack());
         EventLogger.addLoggable(new DropItemLoggable(event));
     }
 
     @EventHandler
     public static void onEat(PlayerItemConsumeEvent event) {
+        PlayerIntentTracker.recordEat(event.getPlayer(), event.getItem());
         EventLogger.addLoggable(new EatingLoggable(event));
     }
 
@@ -115,6 +127,7 @@ public class LoggableEventHandler implements Listener {
 
     @EventHandler
     public static void onBlockPlaced(BlockPlaceEvent event) {
+        PlayerIntentTracker.recordBlockPlace(event.getPlayer(), event.getBlockPlaced().getType());
         EventLogger.addLoggable(new SpecialBlockPlaceEventLoggable(event));
     }
 
@@ -130,11 +143,13 @@ public class LoggableEventHandler implements Listener {
 
     @EventHandler
     public static void onSleep(PlayerBedEnterEvent event) {
+        PlayerIntentTracker.recordSleep(event.getPlayer());
         EventLogger.addLoggable(new SleepTogetherLoggable(event));
     }
 
     @EventHandler
     public static void onUse(PlayerInteractEvent event) {
+        PlayerIntentTracker.recordUse(event.getPlayer(), event.getClickedBlock(), event.getItem());
         EventLogger.addLoggable(new UseLoggable(event));
     }
 
@@ -155,6 +170,9 @@ public class LoggableEventHandler implements Listener {
 
     @EventHandler
     public static void onCraft(CraftItemEvent event) {
+        if (event.getWhoClicked() instanceof Player player) {
+            PlayerIntentTracker.recordCraft(player, event.getRecipe().getResult());
+        }
         EventLogger.addLoggable(new CraftLoggable(event));
     }
 

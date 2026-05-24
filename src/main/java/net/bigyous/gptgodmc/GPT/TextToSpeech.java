@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.bukkit.entity.Player;
-import org.apache.http.HttpHeaders;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
@@ -40,7 +39,10 @@ public class TextToSpeech {
             StringEntity data = new StringEntity(gson.create().toJson(body), ContentType.APPLICATION_JSON);
             GPTGOD.LOGGER.info("POSTING " + gson.setPrettyPrinting().create().toJson(body));
             HttpPost post = new HttpPost(SPEECH_ENDPOINT);
-            post.setHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.getString("openAiKey"));
+            if (!OpenAIAuth.applyBearerAuth(post)) {
+                GPTGOD.LOGGER.warn(OpenAIAuth.missingApiKeyMessage() + " Skipping OpenAI text-to-speech request.");
+                return;
+            }
             GPTGOD.LOGGER.info("Making POST request");
             post.setEntity(data);
             try {

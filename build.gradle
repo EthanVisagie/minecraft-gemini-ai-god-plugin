@@ -1,14 +1,21 @@
 plugins {
-    id 'com.github.johnrengelman.shadow' version '6.1.0'
+    id 'com.gradleup.shadow' version '8.3.6'
     id 'java'
 }
-
-sourceCompatibility = JavaLanguageVersion.of(java_version as int)
-targetCompatibility = JavaLanguageVersion.of(java_version as int)
 
 archivesBaseName = archives_base_name
 version = plugin_version
 group = maven_group
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(java_version as int)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = java_version as int
+}
 
 processResources {
     filesMatching("plugin.yml") {
