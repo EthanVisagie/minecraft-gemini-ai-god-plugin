@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.bukkit.Bukkit;
@@ -74,9 +75,29 @@ public class GptActions {
         private static final Map<String, GptObjectiveTracker> objectiveTrackers = new ConcurrentHashMap<>();
         private static final Map<String, String> objectiveEntries = new ConcurrentHashMap<>();
         private static final Map<String, String> objectiveTeams = new ConcurrentHashMap<>();
+        private static final Map<UUID, TrialState> activeTrials = new ConcurrentHashMap<>();
+        private static final Map<UUID, UUID> trialEntityIds = new ConcurrentHashMap<>();
         private static final ChatColor[] HIDDEN_COLORS = Arrays.stream(ChatColor.values())
                         .filter(color -> color != ChatColor.RESET)
                         .toArray(ChatColor[]::new);
+
+        private static final class TrialState {
+                private final UUID id;
+                private final UUID playerId;
+                private final String playerName;
+                private final String theme;
+                private final int intensity;
+                private final Set<UUID> remainingEntityIds = ConcurrentHashMap.newKeySet();
+                private int totalEntities;
+
+                private TrialState(Player player, String theme, int intensity) {
+                        this.id = UUID.randomUUID();
+                        this.playerId = player.getUniqueId();
+                        this.playerName = player.getName();
+                        this.theme = normalizeTheme(theme);
+                        this.intensity = clampIntensity(intensity);
+                }
+        }
 
         private static void recordActionSuccess(String action, String detail) {
                 ActionOutcomeTracker.success(action, detail);
@@ -480,6 +501,7 @@ public class GptActions {
         private static int spawnTrialEntities(Player player, String theme, int intensity) {
                 EntityType type = trialEntity(theme);
                 int count = Math.min(4, clampIntensity(intensity) + 1);
+                TrialState trial = new TrialState(player, theme, intensity);
                 int spawned = 0;
                 for (int i = 0; i < count; i++) {
                         double angle = (Math.PI * 2 * i) / count;
@@ -493,9 +515,93 @@ public class GptActions {
                                         ? NamedTextColor.RED
                                         : NamedTextColor.LIGHT_PURPLE));
                         entity.setCustomNameVisible(true);
+                        trial.remainingEntityIds.add(entity.getUniqueId());
+                        trialEntityIds.put(entity.getUniqueId(), trial.id);
                         spawned++;
                 }
+                if (spawned > 0) {
+                        trial.totalEntities = spawned;
+                        activeTrials.put(trial.id, trial);
+                        scheduleTrialExpiry(trial.id, 90 + trial.intensity * 30);
+                }
                 return spawned;
+        }
+
+        private static void scheduleTrialExpiry(UUID trialId, int seconds) {
+                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                        TrialState trial = activeTrials.remove(trialId);
+                        if (trial == null) {
+                                return;
+                        }
+                        int remaining = trial.remainingEntityIds.size();
+                        clearTrialEntities(trial, true);
+                        Player player = GPTGOD.SERVER.getPlayer(trial.playerId);
+                        if (player != null && player.isOnline()) {
+                                sendDivineTitle(player, "Trial Faded", "The heavens withdraw their test.", "void");
+                        }
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("divine trial for %s expired with %d/%d enemies remaining",
+                                                        trial.playerName, remaining, trial.totalEntities)));
+                }, Math.max(30, seconds) * 20L);
+        }
+
+        private static void clearTrialEntities(TrialState trial, boolean removeLiveEntities) {
+                for (UUID entityId : Set.copyOf(trial.remainingEntityIds)) {
+                        trialEntityIds.remove(entityId);
+                        if (removeLiveEntities) {
+                                Entity entity = Bukkit.getEntity(entityId);
+                                if (entity != null && !entity.isDead()) {
+                                        entity.remove();
+                                }
+                        }
+                }
+                trial.remainingEntityIds.clear();
+        }
+
+        private static Material trialRewardMaterial(TrialState trial) {
+                if (trial.intensity >= 3) {
+                        return normalizeTheme(trial.theme).equals("wrath") ? Material.ENCHANTED_GOLDEN_APPLE
+                                        : Material.DIAMOND;
+                }
+                if (trial.intensity == 2) {
+                        return normalizeTheme(trial.theme).equals("soul") ? Material.ECHO_SHARD : Material.GOLDEN_APPLE;
+                }
+                return Material.EMERALD;
+        }
+
+        private static int trialRewardCount(TrialState trial) {
+                return trial.intensity >= 3 ? 2 : trial.intensity == 2 ? 1 : 3;
+        }
+
+        private static void completeTrial(TrialState trial, Player rewardPlayer, Player killer) {
+                clearTrialEntities(trial, false);
+                Player recipient = rewardPlayer != null && rewardPlayer.isOnline() ? rewardPlayer : killer;
+                if (recipient == null || !recipient.isOnline()) {
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        "divine trial completed, but no online recipient could receive the reward"));
+                        return;
+                }
+
+                String recipientName = recipient.getName();
+                stageDivineScene(recipientName, "reward", "blessing", Math.max(2, trial.intensity),
+                                "Trial conquered.");
+                recipient.addPotionEffect(new PotionEffect(PotionEffectType.REGENERATION, 20 * (8 + trial.intensity * 4),
+                                Math.max(0, trial.intensity - 1)));
+                recipient.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE,
+                                20 * (12 + trial.intensity * 4), 0));
+
+                JsonObject reward = new JsonObject();
+                Material rewardMaterial = trialRewardMaterial(trial);
+                reward.addProperty("playerName", recipientName);
+                reward.addProperty("itemId", rewardMaterial.name().toLowerCase(Locale.ROOT));
+                reward.addProperty("count", trialRewardCount(trial));
+                reward.addProperty("displayName", "Victor's " + rewardMaterial.name().toLowerCase(Locale.ROOT)
+                                .replace('_', ' '));
+                dropDivineReward.run(reward);
+                EventLogger.addLoggable(new GPTActionLoggable(String.format(
+                                "%s conquered a %s divine trial by defeating %d enemies",
+                                recipientName, trial.theme, trial.totalEntities)));
+                recordActionSuccess("trialCompleted", "rewarded " + recipientName + " for conquering a divine trial");
         }
 
         private static Block findSurfaceBlock(Location origin, int dx, int dz) {
@@ -1755,6 +1861,66 @@ public class GptActions {
                 args.addProperty("intensity", intensity);
                 args.addProperty("message", message == null ? "" : message);
                 divineScene.run(args);
+        }
+
+        public static boolean onTrialEntityDeath(Entity entity, Player killer) {
+                if (entity == null) {
+                        return false;
+                }
+                UUID trialId = trialEntityIds.remove(entity.getUniqueId());
+                if (trialId == null) {
+                        return false;
+                }
+
+                TrialState trial = activeTrials.get(trialId);
+                if (trial == null) {
+                        return false;
+                }
+                trial.remainingEntityIds.remove(entity.getUniqueId());
+                scheduleDivinePulses(entity.getLocation(), trial.theme, 1);
+
+                Player trialPlayer = GPTGOD.SERVER.getPlayer(trial.playerId);
+                Player viewer = trialPlayer != null && trialPlayer.isOnline() ? trialPlayer : killer;
+                if (!trial.remainingEntityIds.isEmpty()) {
+                        if (viewer != null && viewer.isOnline()) {
+                                viewer.playSound(viewer.getLocation(), Sound.ENTITY_WITHER_HURT, 0.55f, 1.25f);
+                                if (trial.remainingEntityIds.size() == 1) {
+                                        sendDivineTitle(viewer, "One Remains", "Finish the trial.", trial.theme);
+                                }
+                        }
+                        return true;
+                }
+
+                activeTrials.remove(trialId);
+                completeTrial(trial, trialPlayer, killer);
+                return true;
+        }
+
+        public static boolean onTrialPlayerDeath(Player player) {
+                if (player == null) {
+                        return false;
+                }
+                boolean failed = false;
+                for (TrialState trial : List.copyOf(activeTrials.values())) {
+                        if (!trial.playerId.equals(player.getUniqueId())) {
+                                continue;
+                        }
+                        activeTrials.remove(trial.id);
+                        clearTrialEntities(trial, true);
+                        failed = true;
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("%s failed a %s divine trial by dying", player.getName(),
+                                                        trial.theme)));
+                        recordActionFailure("trialFailed", player.getName() + " died during a divine trial");
+                }
+                if (failed) {
+                        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                                if (player.isOnline()) {
+                                        sendDivineTitle(player, "Trial Failed", "The test remembers your fall.", "wrath");
+                                }
+                        }, 40L);
+                }
+                return failed;
         }
 
         public static void onObjectiveExpired(String objective) {

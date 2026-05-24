@@ -72,12 +72,14 @@ public class Structure {
 
     public void removeBlock(Location block) {
         blocks.remove(block.toVector());
+        location = null;
+        bounds = null;
     }
 
     public void addBlock(Location block) {
         blocks.add(block.toVector());
-        if (location != null)
-            location = null;
+        location = null;
+        bounds = null;
         if (world == null)
             world = block.getWorld();
     }
@@ -195,6 +197,8 @@ public class Structure {
 
     public void merge(Structure other) {
         blocks.addAll(other.getVectors());
+        location = null;
+        bounds = null;
     }
 
     public int getSize() {

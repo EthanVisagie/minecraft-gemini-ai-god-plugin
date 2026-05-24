@@ -6,6 +6,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -13,6 +14,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import io.papermc.paper.event.player.AsyncChatEvent;
 import net.bigyous.gptgodmc.GameLoop;
+import net.bigyous.gptgodmc.GPT.GptActions;
 import net.bigyous.gptgodmc.GPTGOD;
 import net.bigyous.gptgodmc.memory.MemoryStore;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
@@ -32,8 +34,16 @@ public class ReactionListener implements Listener {
         if (killer != null) {
             MemoryStore.recordKill(killer, event.getPlayer());
         }
+        GptActions.onTrialPlayerDeath(event.getPlayer());
         ReactionEngine.onPlayerDeath(event.getPlayer(), killer);
         GameLoop.triggerSoon("player death", 20);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntityDeath(EntityDeathEvent event) {
+        if (GptActions.onTrialEntityDeath(event.getEntity(), event.getEntity().getKiller())) {
+            GameLoop.triggerSoon("divine trial progress", 20);
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
