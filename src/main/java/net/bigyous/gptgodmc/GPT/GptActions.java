@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
@@ -18,6 +19,7 @@ import org.bukkit.FireworkEffect;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
@@ -28,6 +30,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Firework;
 import org.bukkit.entity.Item;
+import org.bukkit.entity.Monster;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.FireworkMeta;
@@ -35,12 +38,15 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Score;
 import org.bukkit.scoreboard.Team;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 
 import net.bigyous.gptgodmc.EventLogger;
+import net.bigyous.gptgodmc.GameLoop;
 import net.bigyous.gptgodmc.GPTGOD;
 import net.bigyous.gptgodmc.Structure;
 import net.bigyous.gptgodmc.StructureManager;
@@ -72,11 +78,13 @@ public class GptActions {
         private static Gson gson = new Gson();
         private static JavaPlugin plugin = JavaPlugin.getPlugin(GPTGOD.class);
         private static Boolean useTts = plugin.getConfig().getBoolean("tts");
+        private static final NamespacedKey FAVOR_TOKEN_THEME_KEY = new NamespacedKey(plugin, "attuned_favor_theme");
         private static final Map<String, GptObjectiveTracker> objectiveTrackers = new ConcurrentHashMap<>();
         private static final Map<String, String> objectiveEntries = new ConcurrentHashMap<>();
         private static final Map<String, String> objectiveTeams = new ConcurrentHashMap<>();
         private static final Map<UUID, TrialState> activeTrials = new ConcurrentHashMap<>();
         private static final Map<UUID, UUID> trialEntityIds = new ConcurrentHashMap<>();
+        private static final Map<UUID, FavorZone> activeFavorZones = new ConcurrentHashMap<>();
         private static final ChatColor[] HIDDEN_COLORS = Arrays.stream(ChatColor.values())
                         .filter(color -> color != ChatColor.RESET)
                         .toArray(ChatColor[]::new);
@@ -96,6 +104,29 @@ public class GptActions {
                         this.playerName = player.getName();
                         this.theme = normalizeTheme(theme);
                         this.intensity = clampIntensity(intensity);
+                }
+        }
+
+        private static final class FavorZone {
+                private final UUID id = UUID.randomUUID();
+                private final Location center;
+                private final String theme;
+                private final int intensity;
+                private final String reason;
+                private long expiresAtMs;
+                private final Map<UUID, Integer> attunementTicks = new ConcurrentHashMap<>();
+                private final Set<UUID> rewardedPlayers = ConcurrentHashMap.newKeySet();
+                private BukkitTask task;
+                private int pulse;
+                private int groupTicks;
+                private boolean groupRewarded;
+
+                private FavorZone(Location center, String theme, int intensity, String reason, int durationSeconds) {
+                        this.center = center.clone();
+                        this.theme = normalizeTheme(theme);
+                        this.intensity = clampIntensity(intensity);
+                        this.reason = reason == null || reason.isBlank() ? "divine favor" : reason;
+                        this.expiresAtMs = System.currentTimeMillis() + Math.max(8, Math.min(60, durationSeconds)) * 1000L;
                 }
         }
 
@@ -277,6 +308,14 @@ public class GptActions {
                                 "curated divine scene: arrival, objective, reward, judgment, trial, spire, or celebration");
                 schema.setEnumValues(Arrays.asList("arrival", "objective", "reward", "judgment", "trial", "spire",
                                 "celebration"));
+                return schema;
+        }
+
+        private static Schema miracleSchema() {
+                Schema schema = new Schema(Schema.Type.STRING,
+                                "curated miracle: salvation, banishment, provision, pilgrimage, or ascension");
+                schema.setEnumValues(Arrays.asList("salvation", "banishment", "provision", "pilgrimage",
+                                "ascension"));
                 return schema;
         }
 
@@ -635,6 +674,261 @@ public class GptActions {
                 }, ticks);
         }
 
+        private static void startFavorZone(Location center, String theme, int intensity, String reason,
+                        int durationSeconds) {
+                World world = center.getWorld();
+                if (world == null) {
+                        return;
+                }
+                while (activeFavorZones.size() >= 6) {
+                        UUID oldest = activeFavorZones.keySet().iterator().next();
+                        FavorZone removed = activeFavorZones.remove(oldest);
+                        if (removed != null && removed.task != null) {
+                                removed.task.cancel();
+                        }
+                }
+                FavorZone zone = new FavorZone(center, theme, intensity, reason, durationSeconds);
+                activeFavorZones.put(zone.id, zone);
+                zone.task = Bukkit.getScheduler().runTaskTimer(plugin, () -> tickFavorZone(zone), 0L, 20L);
+                world.playSound(center, Sound.BLOCK_BEACON_AMBIENT, 0.8f, 1.2f);
+                EventLogger.addLoggable(new GPTActionLoggable(String.format(
+                                "opened a %s favor zone at %.0f %.0f %.0f for %s",
+                                zone.theme, center.getX(), center.getY(), center.getZ(), zone.reason)));
+        }
+
+        private static void tickFavorZone(FavorZone zone) {
+                World world = zone.center.getWorld();
+                if (world == null || System.currentTimeMillis() >= zone.expiresAtMs) {
+                        finishFavorZone(zone);
+                        return;
+                }
+
+                zone.pulse++;
+                double radius = 3.0 + zone.intensity * 1.6;
+                Location center = zone.center.clone().add(0, 0.4, 0);
+                Particle primary = primaryParticle(zone.theme);
+                Particle secondary = secondaryParticle(zone.theme);
+                world.spawnParticle(primary, center.clone().add(0, 0.8, 0), 18 + zone.intensity * 10,
+                                radius / 3, 0.4, radius / 3, 0.015);
+                world.spawnParticle(secondary, center.clone().add(0, 1.2, 0), 8 + zone.intensity * 8,
+                                radius / 4, 0.35, radius / 4, 0.005);
+                for (int i = 0; i < 36; i++) {
+                        double angle = (Math.PI * 2 * i) / 36.0 + zone.pulse * 0.12;
+                        Location ring = center.clone().add(Math.cos(angle) * radius, 0.05,
+                                        Math.sin(angle) * radius);
+                        world.spawnParticle(primary, ring, 1, 0.01, 0.01, 0.01, 0.0);
+                }
+
+                if (zone.pulse % 4 == 0) {
+                        world.playSound(center, primarySound(zone.theme), 0.35f, 1.45f);
+                }
+
+                int repelledHostiles = zone.pulse % 3 == 0
+                                ? repelNearbyHostiles(zone.center, radius + 1.0, 1.5 + zone.intensity * 1.25,
+                                                zone.intensity >= 2)
+                                : 0;
+
+                Set<UUID> currentPlayers = new LinkedHashSet<>();
+                List<Player> presentPlayers = playersNear(zone.center, radius + 1.5);
+                for (Player player : presentPlayers) {
+                        currentPlayers.add(player.getUniqueId());
+                        String message = repelledHostiles > 0
+                                        ? "Divine favor repels " + repelledHostiles + " hostile"
+                                                        + (repelledHostiles == 1 ? "" : "s")
+                                        : "Divine favor: " + zone.reason;
+                        player.sendActionBar(Component.text(message, NamedTextColor.GOLD));
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.REGENERATION,
+                                        20 * 3, Math.max(0, zone.intensity - 2)));
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.SATURATION, 20 * 2, 0));
+                        if (zone.intensity >= 2) {
+                                player.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, 20 * 3, 0));
+                        }
+                        if (zone.intensity >= 3) {
+                                player.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, 20 * 3, 0));
+                        }
+
+                        int attunedTicks = zone.attunementTicks.merge(player.getUniqueId(), 1, Integer::sum);
+                        if (attunedTicks >= 5 && zone.rewardedPlayers.add(player.getUniqueId())) {
+                                rewardFavorAttunement(zone, player);
+                        }
+                }
+                zone.attunementTicks.keySet().removeIf(playerId -> !currentPlayers.contains(playerId));
+                tickGroupFavorConvergence(zone, presentPlayers);
+        }
+
+        private static void tickGroupFavorConvergence(FavorZone zone, List<Player> presentPlayers) {
+                if (zone.groupRewarded) {
+                        return;
+                }
+                if (presentPlayers.size() < 2) {
+                        zone.groupTicks = 0;
+                        return;
+                }
+
+                zone.groupTicks++;
+                for (Player player : presentPlayers) {
+                        player.sendActionBar(Component.text(
+                                        "Shared favor " + Math.min(zone.groupTicks, 4) + "/4: stand together",
+                                        NamedTextColor.AQUA));
+                }
+                if (zone.groupTicks >= 4) {
+                        rewardGroupFavorConvergence(zone, presentPlayers);
+                }
+        }
+
+        private static void rewardGroupFavorConvergence(FavorZone zone, List<Player> presentPlayers) {
+                World world = zone.center.getWorld();
+                if (world == null) {
+                        return;
+                }
+                zone.groupRewarded = true;
+                int rewardIntensity = Math.min(3, zone.intensity + 1);
+                Location center = zone.center.clone().add(0, 1.1, 0);
+                world.spawnParticle(Particle.FIREWORK, center, 80 + rewardIntensity * 35, 2.2, 1.0, 2.2, 0.08);
+                world.spawnParticle(primaryParticle(zone.theme), center, 70 + rewardIntensity * 35, 2.8, 1.0, 2.8,
+                                0.04);
+                world.playSound(center, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
+                spawnFireworkBurst(zone.center, zone.theme, rewardIntensity);
+
+                for (Player player : presentPlayers) {
+                        sendDivineTitle(player, "Favor Shared", "The blessing grows between you.", zone.theme);
+                        player.giveExp(10 + rewardIntensity * 6);
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.HERO_OF_THE_VILLAGE,
+                                        20 * (20 + rewardIntensity * 8), 0));
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.ABSORPTION,
+                                        20 * (15 + rewardIntensity * 5), rewardIntensity - 1));
+                }
+
+                Item sharedToken = world.dropItemNaturally(center,
+                                createFavorToken(zone.theme, rewardIntensity, "Shared Favor",
+                                                "Right-click to release the group's favor."));
+                sharedToken.setGlowing(true);
+                sharedToken.setCustomNameVisible(true);
+                sharedToken.customName(Component.text("Shared Favor", NamedTextColor.AQUA)
+                                .decoration(TextDecoration.BOLD, true));
+                sharedToken.setVelocity(new Vector(0, 0.35, 0));
+
+                EventLogger.addLoggable(new GPTActionLoggable(String.format(
+                                "%d players shared a %s favor zone from %s",
+                                presentPlayers.size(), zone.theme, zone.reason)));
+                GameLoop.triggerSoon("players shared a divine favor zone", 15);
+        }
+
+        private static void rewardFavorAttunement(FavorZone zone, Player player) {
+                World world = zone.center.getWorld();
+                if (world == null || player == null || !player.isOnline()) {
+                        return;
+                }
+
+                Location rewardLocation = player.getLocation().clone().add(0, 1.0, 0);
+                player.giveExp(6 + zone.intensity * 4);
+                player.addPotionEffect(new PotionEffect(PotionEffectType.ABSORPTION, 20 * (10 + zone.intensity * 4),
+                                Math.max(0, zone.intensity - 1)));
+                sendDivineTitle(player, "Favor Answered", "You held the blessed ground.", zone.theme);
+                world.playSound(rewardLocation, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 1.0f, 1.35f);
+                world.spawnParticle(Particle.TOTEM_OF_UNDYING, rewardLocation, 35 + zone.intensity * 20,
+                                0.8, 0.8, 0.8, 0.04);
+
+                ItemStack token = createFavorToken(zone.theme, Math.max(1, zone.intensity), "Attuned Favor",
+                                "Right-click to release this favor.");
+                Item drop = world.dropItemNaturally(rewardLocation, token);
+                drop.setGlowing(true);
+                drop.setVelocity(new Vector(0, 0.25, 0));
+
+                EventLogger.addLoggable(new GPTActionLoggable(String.format(
+                                "%s attuned to a %s favor zone from %s",
+                                player.getName(), zone.theme, zone.reason)));
+                GameLoop.triggerSoon("player attuned to divine favor zone", 20);
+        }
+
+        private static ItemStack createFavorToken(String theme, int amount, String displayName, String instruction) {
+                String normalizedTheme = normalizeTheme(theme);
+                ItemStack token = new ItemStack(favorTokenMaterial(normalizedTheme), Math.max(1, amount));
+                ItemMeta meta = token.getItemMeta();
+                if (meta != null) {
+                        meta.displayName(Component.text(displayName, NamedTextColor.GOLD)
+                                        .decoration(TextDecoration.BOLD, true));
+                        meta.lore(List.of(
+                                        Component.text(instruction, NamedTextColor.YELLOW),
+                                        Component.text("Theme: " + normalizedTheme, NamedTextColor.GRAY)));
+                        meta.getPersistentDataContainer().set(FAVOR_TOKEN_THEME_KEY, PersistentDataType.STRING,
+                                        normalizedTheme);
+                        token.setItemMeta(meta);
+                }
+                return token;
+        }
+
+        private static FavorZone getNearbyFavorZone(Location location) {
+                if (location == null || location.getWorld() == null) {
+                        return null;
+                }
+                long now = System.currentTimeMillis();
+                FavorZone best = null;
+                double bestDistance = Double.MAX_VALUE;
+                for (FavorZone zone : List.copyOf(activeFavorZones.values())) {
+                        if (zone.center.getWorld() == null || zone.expiresAtMs <= now
+                                        || !zone.center.getWorld().equals(location.getWorld())) {
+                                continue;
+                        }
+                        double radius = 3.0 + zone.intensity * 1.6 + 2.0;
+                        double distanceSquared = zone.center.distanceSquared(location);
+                        if (distanceSquared <= radius * radius && distanceSquared < bestDistance) {
+                                best = zone;
+                                bestDistance = distanceSquared;
+                        }
+                }
+                return best;
+        }
+
+        private static void extendFavorZone(FavorZone zone, Player catalyst, String theme, int intensity) {
+                if (zone == null || zone.center.getWorld() == null) {
+                        return;
+                }
+                long now = System.currentTimeMillis();
+                long extensionMs = (12L + intensity * 6L) * 1000L;
+                zone.expiresAtMs = Math.min(Math.max(zone.expiresAtMs, now) + extensionMs, now + 75_000L);
+                zone.groupRewarded = false;
+                zone.groupTicks = 0;
+
+                World world = zone.center.getWorld();
+                Location center = zone.center.clone().add(0, 1.0, 0);
+                world.spawnParticle(Particle.END_ROD, center, 70 + intensity * 25, 2.0, 0.8, 2.0, 0.03);
+                world.spawnParticle(primaryParticle(theme), center, 55 + intensity * 25, 2.5, 0.9, 2.5, 0.05);
+                world.playSound(center, Sound.BLOCK_BEACON_POWER_SELECT, 1.0f, 1.55f);
+
+                for (Player player : playersNear(zone.center, 7.0 + intensity * 2.0)) {
+                        sendDivineTitle(player, "Favor Extended", "The blessed ground endures.", theme);
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 20 * 6, 0));
+                }
+                EventLogger.addLoggable(new GPTActionLoggable(String.format(
+                                "%s extended a %s favor zone with an attuned token",
+                                catalyst == null ? "Someone" : catalyst.getName(), zone.theme)));
+        }
+
+        private static Material favorTokenMaterial(String theme) {
+                return switch (normalizeTheme(theme)) {
+                case "wrath" -> Material.IRON_NUGGET;
+                case "soul" -> Material.AMETHYST_SHARD;
+                case "fire" -> Material.BLAZE_POWDER;
+                case "void" -> Material.ENDER_PEARL;
+                case "blessing" -> Material.GOLD_NUGGET;
+                default -> Material.EXPERIENCE_BOTTLE;
+                };
+        }
+
+        private static void finishFavorZone(FavorZone zone) {
+                activeFavorZones.remove(zone.id);
+                if (zone.task != null) {
+                        zone.task.cancel();
+                }
+                World world = zone.center.getWorld();
+                if (world != null) {
+                        world.spawnParticle(Particle.END_ROD, zone.center.clone().add(0, 1.0, 0), 35, 1.4, 0.5, 1.4,
+                                        0.02);
+                        world.playSound(zone.center, Sound.BLOCK_BEACON_DEACTIVATE, 0.55f, 1.35f);
+                }
+        }
+
         private static void pulseObjectiveTargets(List<PlayerMemory> targets, String theme, int intensity, String title,
                         String subtitle) {
                 for (PlayerMemory memory : targets) {
@@ -652,6 +946,289 @@ public class GptActions {
                 if (sacredStructure != null) {
                         scheduleDivinePulses(sacredStructure.getLocation(), theme, intensity);
                         spawnFireworkBurst(sacredStructure.getLocation(), theme, intensity);
+                }
+        }
+
+        private static void rewardObjectiveTargets(List<PlayerMemory> targets, String objective) {
+                String theme = objectiveTheme(objective);
+                Material rewardMaterial = objectiveRewardMaterial(objective);
+                int count = objectiveRewardCount(objective);
+                for (PlayerMemory memory : targets) {
+                        Player player = GPTGOD.SERVER.getPlayerExact(memory.playerName);
+                        if (player == null || !player.isOnline()) {
+                                continue;
+                        }
+
+                        JsonObject reward = new JsonObject();
+                        reward.addProperty("playerName", player.getName());
+                        reward.addProperty("itemId", rewardMaterial.name().toLowerCase(Locale.ROOT));
+                        reward.addProperty("count", count);
+                        reward.addProperty("displayName", objectiveRewardName(objective, rewardMaterial));
+                        dropDivineReward.run(reward);
+
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.HERO_OF_THE_VILLAGE, 20 * 45, 0));
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.SATURATION, 20 * 8, 0));
+                        if (isMajorObjective(objective)) {
+                                invokeDivineMiracle(player.getName(), "ascension", theme, 2,
+                                                "A fulfilled task rises into legend.");
+                                startFavorZone(player.getLocation(), theme, 2, "task fulfilled", 32);
+                        } else {
+                                invokeDivineMiracle(player.getName(), "salvation", theme, 1,
+                                                "A task fulfilled is answered.");
+                                startFavorZone(player.getLocation(), theme, 1, "task fulfilled", 22);
+                        }
+                }
+        }
+
+        private static String objectiveTheme(String objective) {
+                String normalized = objective == null ? "" : objective.toLowerCase(Locale.ROOT);
+                if (containsAny(normalized, "spire", "soul", "ritual", "altar", "offering", "prayer")) {
+                        return "soul";
+                }
+                if (containsAny(normalized, "kill", "fight", "monster", "zombie", "skeleton", "trial", "blood")) {
+                        return "wrath";
+                }
+                if (containsAny(normalized, "fire", "campfire", "torch", "smelt", "cook")) {
+                        return "fire";
+                }
+                if (containsAny(normalized, "food", "farm", "wheat", "animal", "shelter", "home", "wood")) {
+                        return "blessing";
+                }
+                return "divine";
+        }
+
+        private static Material objectiveRewardMaterial(String objective) {
+                String normalized = objective == null ? "" : objective.toLowerCase(Locale.ROOT);
+                if (containsAny(normalized, "spire", "soul", "ritual", "altar", "offering", "prayer")) {
+                        return Material.AMETHYST_SHARD;
+                }
+                if (containsAny(normalized, "kill", "fight", "monster", "zombie", "skeleton", "trial", "blood")) {
+                        return Material.IRON_INGOT;
+                }
+                if (containsAny(normalized, "fire", "campfire", "torch", "smelt", "cook")) {
+                        return Material.COAL;
+                }
+                if (containsAny(normalized, "food", "farm", "wheat", "animal")) {
+                        return Material.GOLDEN_CARROT;
+                }
+                if (containsAny(normalized, "build", "shelter", "home", "wood", "stone", "tower")) {
+                        return Material.EMERALD;
+                }
+                return Material.EXPERIENCE_BOTTLE;
+        }
+
+        private static int objectiveRewardCount(String objective) {
+                return isMajorObjective(objective) ? 4 : 2;
+        }
+
+        private static boolean isMajorObjective(String objective) {
+                String normalized = objective == null ? "" : objective.toLowerCase(Locale.ROOT);
+                return containsAny(normalized, "spire", "monument", "tower", "trial", "dragon", "wither", "diamond",
+                                "nether", "end", "repentance");
+        }
+
+        private static String objectiveRewardName(String objective, Material material) {
+                String normalized = objective == null ? "" : objective.toLowerCase(Locale.ROOT);
+                if (containsAny(normalized, "spire", "soul", "ritual")) {
+                        return "Spire Favor";
+                }
+                if (containsAny(normalized, "kill", "fight", "monster", "trial")) {
+                        return "Hunter's Favor";
+                }
+                if (containsAny(normalized, "food", "farm", "animal")) {
+                        return "Harvest Favor";
+                }
+                return "Divine " + material.name().toLowerCase(Locale.ROOT).replace('_', ' ');
+        }
+
+        private static String normalizeMiracle(String miracleType) {
+                if (miracleType == null || miracleType.isBlank()) {
+                        return "salvation";
+                }
+                String normalized = miracleType.toLowerCase(Locale.ROOT).trim();
+                if (containsAny(normalized, "banish", "purge", "monster", "hostile", "cleanse")) {
+                        return "banishment";
+                }
+                if (containsAny(normalized, "provision", "supply", "food", "cache", "chest", "gift")) {
+                        return "provision";
+                }
+                if (containsAny(normalized, "pilgrim", "path", "guide", "spire", "route")) {
+                        return "pilgrimage";
+                }
+                if (containsAny(normalized, "ascend", "lift", "rise", "flight", "sky")) {
+                        return "ascension";
+                }
+                return "salvation";
+        }
+
+        private static void performSalvationMiracle(Location center, String theme, int intensity) {
+                World world = center.getWorld();
+                if (world == null) {
+                        return;
+                }
+                int clamped = clampIntensity(intensity);
+                double radius = 12 + clamped * 5;
+                for (Player player : playersNear(center, radius)) {
+                        double maxHealth = player.getMaxHealth();
+                        player.setHealth(Math.min(maxHealth, player.getHealth() + 5 + clamped * 3));
+                        player.setFireTicks(0);
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.REGENERATION, 20 * (6 + clamped * 4),
+                                        Math.max(0, clamped - 1)));
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.ABSORPTION, 20 * (18 + clamped * 6),
+                                        clamped));
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, 20 * (12 + clamped * 4),
+                                        0));
+                }
+                repelNearbyHostiles(center, radius, 4 + clamped * 4, true);
+                world.spawnParticle(Particle.TOTEM_OF_UNDYING, center.clone().add(0, 1.4, 0), 70 + clamped * 45,
+                                radius / 5, 1.2, radius / 5, 0.08);
+                world.playSound(center, Sound.ITEM_TOTEM_USE, 1.1f, 0.85f);
+        }
+
+        private static int repelNearbyHostiles(Location center, double radius, double damage, boolean lift) {
+                World world = center.getWorld();
+                if (world == null) {
+                        return 0;
+                }
+                int affected = 0;
+                for (Entity entity : world.getNearbyEntities(center, radius, radius / 2, radius)) {
+                        if (!(entity instanceof Monster monster) || monster.isDead()) {
+                                continue;
+                        }
+                        Vector away = monster.getLocation().toVector().subtract(center.toVector());
+                        if (away.lengthSquared() < 0.01) {
+                                away = new Vector(Math.random() - 0.5, 0, Math.random() - 0.5);
+                        }
+                        monster.setVelocity(away.normalize().multiply(0.8).setY(lift ? 0.65 : 0.25));
+                        monster.damage(damage);
+                        monster.setGlowing(true);
+                        affected++;
+                }
+                if (affected > 0) {
+                        world.spawnParticle(Particle.FLASH, center.clone().add(0, 1.0, 0), Math.min(affected, 8),
+                                        radius / 5, 0.4, radius / 5, 0.0);
+                        world.playSound(center, Sound.ENTITY_EVOKER_CAST_SPELL, 1.0f, 0.65f);
+                }
+                return affected;
+        }
+
+        private static void performProvisionMiracle(Location center, String theme, int intensity) {
+                World world = center.getWorld();
+                if (world == null) {
+                        return;
+                }
+                Block chestBlock = findNearbySurfaceBlock(center);
+                if (chestBlock == null) {
+                        spawnLooseProvision(center, intensity);
+                        return;
+                }
+                chestBlock.setType(Material.CHEST, false);
+                BlockState state = chestBlock.getState();
+                if (!(state instanceof Chest chest)) {
+                        spawnLooseProvision(chestBlock.getLocation().add(0.5, 1.0, 0.5), intensity);
+                        return;
+                }
+                int clamped = clampIntensity(intensity);
+                chest.customName(Component.text("Divine Provision", NamedTextColor.GOLD));
+                chest.getBlockInventory().addItem(new ItemStack(Material.COOKED_BEEF, 8 + clamped * 8));
+                chest.getBlockInventory().addItem(new ItemStack(Material.TORCH, 12 + clamped * 8));
+                chest.getBlockInventory().addItem(new ItemStack(Material.OAK_LOG, 8 + clamped * 6));
+                chest.getBlockInventory().addItem(new ItemStack(Material.COBBLESTONE, 16 + clamped * 16));
+                if (clamped >= 2) {
+                        chest.getBlockInventory().addItem(new ItemStack(Material.GOLDEN_APPLE, clamped));
+                        chest.getBlockInventory().addItem(new ItemStack(Material.AMETHYST_SHARD, 4 + clamped * 2));
+                }
+                if (clamped >= 3) {
+                        chest.getBlockInventory().addItem(new ItemStack(Material.ECHO_SHARD, 2));
+                        chest.getBlockInventory().addItem(new ItemStack(Material.DIAMOND, 1));
+                }
+                chest.update(true, false);
+                Location chestLocation = chestBlock.getLocation().add(0.5, 1.1, 0.5);
+                world.spawnParticle(primaryParticle(theme), chestLocation, 55 + clamped * 30, 0.8, 0.6, 0.8, 0.04);
+                world.playSound(chestLocation, Sound.BLOCK_CHEST_OPEN, 1.0f, 0.8f);
+        }
+
+        private static Block findNearbySurfaceBlock(Location center) {
+                for (int radius = 0; radius <= 3; radius++) {
+                        for (int dx = -radius; dx <= radius; dx++) {
+                                for (int dz = -radius; dz <= radius; dz++) {
+                                        if (Math.abs(dx) != radius && Math.abs(dz) != radius) {
+                                                continue;
+                                        }
+                                        Block block = findSurfaceBlock(center, dx, dz);
+                                        if (block != null && block.isPassable() && !block.isLiquid()) {
+                                                return block;
+                                        }
+                                }
+                        }
+                }
+                return null;
+        }
+
+        private static void spawnLooseProvision(Location center, int intensity) {
+                World world = center.getWorld();
+                if (world == null) {
+                        return;
+                }
+                int clamped = clampIntensity(intensity);
+                world.dropItemNaturally(center, new ItemStack(Material.COOKED_BEEF, 8 + clamped * 8)).setGlowing(true);
+                world.dropItemNaturally(center, new ItemStack(Material.TORCH, 12 + clamped * 8)).setGlowing(true);
+                world.dropItemNaturally(center, new ItemStack(Material.COBBLESTONE, 16 + clamped * 16)).setGlowing(true);
+                if (clamped >= 2) {
+                        world.dropItemNaturally(center, new ItemStack(Material.GOLDEN_APPLE, clamped)).setGlowing(true);
+                }
+        }
+
+        private static boolean performPilgrimageMiracle(Location center, String theme, int intensity) {
+                World world = center.getWorld();
+                Structure sacredStructure = StructureManager.getSacredStructure();
+                if (world == null || sacredStructure == null || sacredStructure.getLocation().getWorld() != world) {
+                        return false;
+                }
+                int clamped = clampIntensity(intensity);
+                Location destination = sacredStructure.getLocation();
+                Vector path = destination.toVector().subtract(center.toVector());
+                double distance = path.length();
+                if (distance < 6) {
+                        return false;
+                }
+                Vector direction = path.normalize();
+                int maxSteps = Math.min((int) distance - 2, 18 + clamped * 12);
+                List<BlockState> originalStates = new ArrayList<>();
+                Material pathMaterial = normalizeTheme(theme).equals("soul") ? Material.SEA_LANTERN : Material.GLOWSTONE;
+                for (int step = 3; step <= maxSteps; step += 3) {
+                        Location marker = center.clone().add(direction.clone().multiply(step));
+                        Block block = findSurfaceBlock(marker, 0, 0);
+                        if (block == null || !block.isPassable() || block.isLiquid()) {
+                                continue;
+                        }
+                        originalStates.add(block.getState());
+                        block.setType(pathMaterial, false);
+                        world.spawnParticle(Particle.END_ROD, block.getLocation().add(0.5, 1.2, 0.5), 10, 0.25,
+                                        0.35, 0.25, 0.01);
+                }
+                restoreBlocksLater(originalStates, 45 + clamped * 15);
+                world.playSound(center, Sound.BLOCK_BEACON_POWER_SELECT, 1.0f, 1.2f);
+                world.playSound(destination, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.9f, 0.9f);
+                return !originalStates.isEmpty();
+        }
+
+        private static void performAscensionMiracle(Location center, String theme, int intensity) {
+                int clamped = clampIntensity(intensity);
+                for (Player player : playersNear(center, 10 + clamped * 5)) {
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, 20 * (2 + clamped), 0));
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.SLOW_FALLING, 20 * (12 + clamped * 4),
+                                        0));
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 20 * (8 + clamped * 4), 0));
+                        player.setVelocity(player.getVelocity().setY(0.65 + clamped * 0.15));
+                        player.playSound(player.getLocation(), primarySound(theme), 0.9f, 1.25f);
+                }
+                World world = center.getWorld();
+                if (world != null) {
+                        world.spawnParticle(Particle.CLOUD, center.clone().add(0, 1.0, 0), 60 + clamped * 35, 2.8,
+                                        1.0, 2.8, 0.04);
+                        world.spawnParticle(primaryParticle(theme), center.clone().add(0, 2.0, 0), 45 + clamped * 35,
+                                        2.0, 1.2, 2.0, 0.03);
                 }
         }
 
@@ -1145,6 +1722,7 @@ public class GptActions {
                 MemoryStore.recordObjectiveCompleted(objective);
                 pulseObjectiveTargets(targets, "blessing", 2, "Task Fulfilled", "Favor gathers in the air.");
                 pulseSacredStructure("soul", 2);
+                rewardObjectiveTargets(targets, objective);
                 refreshObjectiveDisplay();
                 EventLogger.addLoggable(
                                 new GPTActionLoggable(String.format("declared objective %s as completed", objective)));
@@ -1558,6 +2136,118 @@ public class GptActions {
                                 String.format("staged %s scene at %s with theme %s intensity %d", sceneType, target,
                                                 theme, intensity));
         };
+        private static SimpFunction<JsonObject> divineMiracle = (JsonObject args) -> {
+                String target = gson.fromJson(args.get("target"), String.class);
+                String miracleType = normalizeMiracle(gson.fromJson(args.get("miracleType"), String.class));
+                String theme = normalizeTheme(gson.fromJson(args.get("theme"), String.class));
+                int intensity = clampIntensity(gson.fromJson(args.get("intensity"), Integer.class));
+                String message = gson.fromJson(args.get("message"), String.class);
+                Location location = resolveTargetLocation(target);
+                if (location == null) {
+                        recordActionFailure("divineMiracle", "unknown player or structure: " + target);
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("failed to invoke %s miracle at %s (unknown target)",
+                                                        miracleType, target)));
+                        return;
+                }
+
+                World world = location.getWorld();
+                if (world == null) {
+                        recordActionFailure("divineMiracle", "target has no world: " + target);
+                        return;
+                }
+
+                if (miracleType.equals("banishment")) {
+                        theme = "wrath";
+                } else if (miracleType.equals("pilgrimage")) {
+                        theme = "soul";
+                        Structure sacredStructure = StructureManager.getSacredStructure();
+                        if (sacredStructure == null || sacredStructure.getLocation().getWorld() != world) {
+                                recordActionFailure("divineMiracle",
+                                                "pilgrimage miracle needs an awakened Soul Spire in the same world");
+                                return;
+                        }
+                } else if (miracleType.equals("provision") || miracleType.equals("salvation")) {
+                        theme = "blessing";
+                }
+
+                String sceneType = switch (miracleType) {
+                case "banishment" -> "judgment";
+                case "pilgrimage" -> "spire";
+                case "ascension" -> "celebration";
+                default -> "reward";
+                };
+                String subtitle = message == null || message.isBlank()
+                                ? switch (miracleType) {
+                                case "banishment" -> "Hostile things are cast from this ground.";
+                                case "provision" -> "Needful gifts take visible form.";
+                                case "pilgrimage" -> "A path answers the faithful.";
+                                case "ascension" -> "The chosen are lifted for a breath.";
+                                default -> "Life is returned by command.";
+                                }
+                                : message;
+
+                applyAtmosphere(world, sceneMood(sceneType, theme));
+                summonTemporaryLightPillar(location, theme, intensity, 10 + intensity * 8);
+                scheduleDivinePulses(location, theme, intensity);
+                if (intensity >= 2) {
+                        spawnFireworkBurst(location, theme, intensity);
+                }
+
+                boolean succeeded = true;
+                int affectedHostiles = 0;
+                switch (miracleType) {
+                case "banishment" -> {
+                        affectedHostiles = repelNearbyHostiles(location, 14 + intensity * 6, 7 + intensity * 5, true);
+                        startFavorZone(location, theme, intensity, "banishment", 12 + intensity * 6);
+                }
+                case "provision" -> {
+                        performProvisionMiracle(location, theme, intensity);
+                        startFavorZone(location, theme, intensity, "provision", 18 + intensity * 7);
+                }
+                case "pilgrimage" -> {
+                        succeeded = performPilgrimageMiracle(location, theme, intensity);
+                        if (succeeded) {
+                                startFavorZone(location, theme, intensity, "pilgrimage begins", 16 + intensity * 6);
+                        }
+                }
+                case "ascension" -> {
+                        performAscensionMiracle(location, theme, intensity);
+                        startFavorZone(location, theme, intensity, "ascension", 16 + intensity * 6);
+                }
+                default -> {
+                        performSalvationMiracle(location, theme, intensity);
+                        startFavorZone(location, theme, intensity, "salvation", 14 + intensity * 6);
+                }
+                }
+
+                if (!succeeded) {
+                        recordActionFailure("divineMiracle", "could not place visible miracle effect for " + miracleType);
+                        return;
+                }
+
+                Set<Player> viewers = new LinkedHashSet<>(playersNear(location, 96 + intensity * 24));
+                Player targetPlayer = GPTGOD.SERVER.getPlayer(target);
+                if (targetPlayer != null) {
+                        viewers.add(targetPlayer);
+                }
+                if (viewers.isEmpty()) {
+                        viewers.addAll(world.getPlayers());
+                }
+                for (Player viewer : viewers) {
+                        sendDivineTitle(viewer, "Divine Miracle", subtitle, theme);
+                        viewer.playSound(viewer.getLocation(), primarySound(theme), 1.0f, 0.72f);
+                }
+
+                EventLogger.addLoggable(new GPTActionLoggable(
+                                String.format("invoked a %s miracle at %s%s", miracleType, target,
+                                                affectedHostiles > 0
+                                                                ? " and banished " + affectedHostiles + " hostiles"
+                                                                : "")));
+                recordActionSuccess("divineMiracle",
+                                String.format("invoked %s miracle at %s with theme %s intensity %d", miracleType,
+                                                target, theme, intensity));
+        };
         private static Map<String, FunctionDeclaration> functionMap = Map.ofEntries(
                         Map.entry("decree", new FunctionDeclaration("decree",
                                         "display a heavenly decree in front of a specific player in the world. Use only to communicate displeasure in some action. Use no more than 12 words in the message.",
@@ -1591,6 +2281,19 @@ public class GptActions {
                                                         new Schema(Schema.Type.STRING,
                                                                         "short subtitle or reason shown to nearby players"))),
                                         divineScene)),
+                        Map.entry("divineMiracle", new FunctionDeclaration("divineMiracle",
+                                        "invoke a curated miracle that visibly changes play for nearby players: salvation heals and protects, banishment repels hostile mobs, provision creates a useful supply cache, pilgrimage draws a temporary light path to the Soul Spire, and ascension safely lifts players with slow falling. Use for high-impact rescues, rewards, guidance, and climactic ritual moments.",
+                                        new Schema(Map.of("target",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "name of an online player or structure such as Soul Spire"),
+                                                        "miracleType", miracleSchema(),
+                                                        "theme", themeSchema(
+                                                                        "miracle theme: divine, blessing, soul, fire, wrath, or void"),
+                                                        "intensity", intensitySchema(),
+                                                        "message",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "short title subtitle shown to nearby players"))),
+                                        divineMiracle)),
                         Map.entry("divineOmen", new FunctionDeclaration("divineOmen",
                                         "create a dramatic but safe visual omen around a player or structure using particles, sound, and optional lightning effects. Use before major rewards, warnings, objectives, or Soul Spire moments.",
                                         new Schema(Map.of("target",
@@ -1861,6 +2564,116 @@ public class GptActions {
                 args.addProperty("intensity", intensity);
                 args.addProperty("message", message == null ? "" : message);
                 divineScene.run(args);
+        }
+
+        public static void invokeDivineMiracle(String target, String miracleType, String theme, int intensity,
+                        String message) {
+                JsonObject args = new JsonObject();
+                args.addProperty("target", target);
+                args.addProperty("miracleType", miracleType);
+                args.addProperty("theme", theme);
+                args.addProperty("intensity", intensity);
+                args.addProperty("message", message == null ? "" : message);
+                divineMiracle.run(args);
+        }
+
+        public static boolean useAttunedFavorToken(Player player, ItemStack item) {
+                if (player == null || item == null || item.isEmpty() || !item.hasItemMeta()) {
+                        return false;
+                }
+                String theme = getFavorTokenTheme(item);
+                if (theme == null || theme.isBlank()) {
+                        return false;
+                }
+
+                if (item.getAmount() > 1) {
+                        item.setAmount(item.getAmount() - 1);
+                } else {
+                        item.setAmount(0);
+                }
+
+                String normalizedTheme = normalizeTheme(theme);
+                String miracle = switch (normalizedTheme) {
+                case "wrath" -> "banishment";
+                case "soul" -> "pilgrimage";
+                case "fire", "void" -> "ascension";
+                case "blessing" -> "provision";
+                default -> "salvation";
+                };
+                FavorZone nearbyZone = getNearbyFavorZone(player.getLocation());
+                boolean amplified = nearbyZone != null;
+                int intensity = amplified ? Math.min(3, nearbyZone.intensity + 1) : 1;
+                String message = amplified ? "Favor answers favor." : "Attuned favor answers your hand.";
+                invokeDivineMiracle(player.getName(), miracle, normalizedTheme, intensity, message);
+                if (amplified) {
+                        World world = player.getWorld();
+                        Location location = player.getLocation().clone().add(0, 1.0, 0);
+                        sendDivineTitle(player, "Favor Amplified", "The blessed ground answers.", normalizedTheme);
+                        world.spawnParticle(Particle.FLASH, location, 2, 0.2, 0.2, 0.2, 0.0);
+                        world.spawnParticle(primaryParticle(normalizedTheme), location, 45 + intensity * 25,
+                                        1.4, 0.8, 1.4, 0.05);
+                        world.playSound(location, Sound.BLOCK_BEACON_POWER_SELECT, 1.0f, 1.35f);
+                }
+                EventLogger.addLoggable(new GPTActionLoggable(
+                                String.format("%s released an attuned %s favor token%s", player.getName(),
+                                                normalizedTheme,
+                                                amplified ? " inside " + nearbyZone.reason : "")));
+                GameLoop.triggerSoon(amplified ? "attuned favor token amplified" : "attuned favor token used", 20);
+                return true;
+        }
+
+        public static String getFavorTokenTheme(ItemStack item) {
+                if (item == null || item.isEmpty() || !item.hasItemMeta()) {
+                        return null;
+                }
+                ItemMeta meta = item.getItemMeta();
+                String theme = meta.getPersistentDataContainer().get(FAVOR_TOKEN_THEME_KEY, PersistentDataType.STRING);
+                return theme == null || theme.isBlank() ? null : normalizeTheme(theme);
+        }
+
+        public static String getPlayerFavorTokenSummary(Player player) {
+                if (player == null || !player.isOnline()) {
+                        return "none";
+                }
+                Map<String, Integer> tokenCounts = new LinkedHashMap<>();
+                for (ItemStack item : player.getInventory().getContents()) {
+                        String theme = getFavorTokenTheme(item);
+                        if (theme != null) {
+                                tokenCounts.put(theme, tokenCounts.getOrDefault(theme, 0) + item.getAmount());
+                        }
+                }
+                if (tokenCounts.isEmpty()) {
+                        return "none";
+                }
+                String tokens = tokenCounts.entrySet().stream()
+                                .map(entry -> entry.getKey() + " x" + entry.getValue())
+                                .reduce((left, right) -> left + ", " + right)
+                                .orElse("none");
+                FavorZone nearbyZone = getNearbyFavorZone(player.getLocation());
+                if (nearbyZone != null) {
+                        return tokens + "; can amplify in nearby " + nearbyZone.theme + " zone from "
+                                        + nearbyZone.reason;
+                }
+                return tokens + "; no active favor zone nearby";
+        }
+
+        public static String getFavorZoneSummary() {
+                long now = System.currentTimeMillis();
+                List<String> zones = List.copyOf(activeFavorZones.values()).stream()
+                                .filter(zone -> zone.center.getWorld() != null && zone.expiresAtMs > now)
+                                .sorted((left, right) -> Long.compare(left.expiresAtMs, right.expiresAtMs))
+                                .limit(6)
+                                .map(zone -> String.format("%s %s intensity %d at %s %.0f %.0f %.0f for %ds",
+                                                zone.theme,
+                                                zone.reason,
+                                                zone.intensity,
+                                                zone.center.getWorld().getName(),
+                                                zone.center.getX(),
+                                                zone.center.getY(),
+                                                zone.center.getZ(),
+                                                Math.max(0L, (zone.expiresAtMs - now + 999L) / 1000L)))
+                                .toList();
+                return zones.isEmpty() ? "none" : String.join("; ", zones);
         }
 
         public static boolean onTrialEntityDeath(Entity entity, Player killer) {

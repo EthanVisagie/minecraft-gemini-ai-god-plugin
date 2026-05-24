@@ -40,7 +40,8 @@ public class GameLoop {
                 Communicate with all tools available to you.
                 Use a mixture of gift and punishment actions in addition to the text based communications.
                 Make divine moments visible. For major moments, prefer divineScene because it combines atmosphere, titles, particles, fireworks, sound, and a temporary light pillar in one reliable scene.
-                Pair major rewards, punishments, objective completions, and Soul Spire ritual steps with divineScene, divineOmen, divineTitle, fireworkShow, blessPlayer, cursePlayer, summonRitualCircle, setDivineAtmosphere, summonTrial, or dropDivineReward.
+                Use divineMiracle when the moment should directly change play: salvation for rescues, banishment for hostile mobs, provision for visible supplies, pilgrimage to guide players to the Soul Spire, and ascension for a brief safe lift.
+                Pair major rewards, punishments, objective completions, and Soul Spire ritual steps with divineScene, divineMiracle, divineOmen, divineTitle, fireworkShow, blessPlayer, cursePlayer, summonRitualCircle, setDivineAtmosphere, summonTrial, or dropDivineReward.
                 Prefer visible rewards such as dropDivineReward or summonSupplyChest over silent inventory gifts when the moment should feel memorable.
                 Use spectacle in short chains: atmosphere/title/omen first, then the reward/punishment/objective/trial, then a brief whisper or announce.
                 Use summonTrial for bounded fun challenges, not for routine punishment spam.
@@ -58,6 +59,8 @@ public class GameLoop {
                 Use Ritual Awareness to guide players toward missing ritual components and the closest ritual work.
                 Use Ritual Mechanics to notice active sanctuary protection, Soul Sigil/wisp opportunities, convergence progress, and the next best ritual action.
                 Use Ritual Momentum to praise or challenge players who are actively chaining ritual actions; invite nearby players to help when convergence is close.
+                Use Divine Favor Zones to know when a miracle or completed task has left an active blessed area; reference it, invite players into it, or avoid stacking another miracle on the same spot unless the moment calls for escalation.
+                Use Divine Favor Tokens to notice who can release or amplify stored favor; if a player carries one near a favor zone, invite them to right-click it there for a stronger moment.
                 Read the Objective Progress and Objective timing summaries before punishing neglect.
                 Read Objective Hints for the concrete next Minecraft action a player likely needs.
                 Treat gathering relevant materials as valid progress when it plausibly supports the current objective.
@@ -236,7 +239,7 @@ public class GameLoop {
                 Thread.onSpinWait();
             }
             GPT_API.addMessage(
-                    "If any previous tool call failed, retry with corrected arguments. Otherwise, choose an interesting visible non-verbal action, preferably divineScene for major moments, or a title, omen, fireworks, atmosphere shift, blessing, curse, ritual circle, visible reward, trial, entity, or world effect, which has not already been done.");
+                    "If any previous tool call failed, retry with corrected arguments. Otherwise, choose an interesting visible non-verbal action, preferably divineScene or divineMiracle for major moments, or a title, omen, fireworks, atmosphere shift, blessing, curse, ritual circle, visible reward, trial, entity, or world effect, which has not already been done.");
 
             GPT_API.send();
 

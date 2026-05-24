@@ -7,6 +7,7 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.Monster;
 import org.bukkit.entity.Player;
 
 import net.bigyous.gptgodmc.GPT.GptActions;
@@ -19,6 +20,12 @@ import net.bigyous.gptgodmc.memory.MemoryStore.MemoryUpdate;
 public class ReactionEngine {
     private static final Random RANDOM = new Random();
     private static final Map<String, Instant> COOLDOWNS = new ConcurrentHashMap<>();
+    private static final Map<String, HuntStreak> HUNT_STREAKS = new ConcurrentHashMap<>();
+
+    private static final class HuntStreak {
+        private int kills;
+        private Instant lastKillAt;
+    }
 
     public static void onPlayerJoin(Player player) {
         MemoryUpdate update = MemoryStore.recordJoin(player);
@@ -183,16 +190,20 @@ public class ReactionEngine {
         }
         case NEUTRAL -> {
             boolean seeksGuidance = normalized.contains("?")
-                    || containsAny(normalized, "what", "how", "task", "objective", "god", "lord", "am i done");
-            if (seeksGuidance && !memory.activeObjectives.isEmpty()
+                    || containsAny(normalized, "what", "how", "task", "objective", "god", "lord", "am i done",
+                            "help", "lost", "stuck", "where");
+            boolean answeredWithMiracle = handleMiracleRequest(player, normalized, memory);
+            if (!answeredWithMiracle && seeksGuidance && !memory.activeObjectives.isEmpty()
                     && !coolingDown("guidance:" + player.getUniqueId(), 18)) {
                 whisper(player, abbreviate(buildGuidanceMessage(memory.activeObjectives.get(0)), 160));
-            } else if (seeksGuidance && !coolingDown("converse:" + player.getUniqueId(), 18)) {
+            } else if (!answeredWithMiracle && seeksGuidance && !coolingDown("converse:" + player.getUniqueId(), 18)) {
                 whisper(player, abbreviate(buildConversationalReply(player.getName(), normalized), 160));
-            } else if (normalized.contains("god") && !coolingDown("acknowledge:" + player.getUniqueId(), 15)) {
+            } else if (!answeredWithMiracle && normalized.contains("god")
+                    && !coolingDown("acknowledge:" + player.getUniqueId(), 15)) {
                 whisper(player, pick("I hear you, little one.", "Speak. I am listening.", "Your words reach me.",
                         "Yes. Tell me what troubles you."));
-            } else if (!coolingDown("neutral:" + player.getUniqueId(), 22) && normalized.length() > 8) {
+            } else if (!answeredWithMiracle && !coolingDown("neutral:" + player.getUniqueId(), 22)
+                    && normalized.length() > 8) {
                 whisper(player, pick("I am listening.", "Continue.", "I have not abandoned you.",
                         "Speak plainly and I may yet be kind."));
             }
@@ -232,6 +243,121 @@ public class ReactionEngine {
         } else {
             whisper(attacker,
                     pick("Spill monster blood and I may remember it.", "Strike true. The beasts are watching too."));
+        }
+    }
+
+    public static void onMobKill(Player killer, Entity killed) {
+        if (killer == null || killed == null || killed instanceof Player || !(killed instanceof Monster)) {
+            return;
+        }
+
+        HuntStreak streak = HUNT_STREAKS.computeIfAbsent(killer.getUniqueId().toString(), ignored -> new HuntStreak());
+        Instant now = Instant.now();
+        if (streak.lastKillAt == null || streak.lastKillAt.plusSeconds(60).isBefore(now)) {
+            streak.kills = 0;
+        }
+        streak.kills++;
+        streak.lastKillAt = now;
+
+        if (streak.kills == 3 && !coolingDown("hunt-title:" + killer.getUniqueId(), 45)) {
+            GptActions.stageDivineScene(killer.getName(), "celebration", "wrath", 1,
+                    "Three beasts fall in quick succession.");
+            whisper(killer, pick("The hunt becomes a hymn.", "Keep cutting the dark from my island."));
+            return;
+        }
+
+        if (streak.kills == 5 && !coolingDown("hunt-miracle:" + killer.getUniqueId(), 120)) {
+            GptActions.invokeDivineMiracle(killer.getName(), "banishment", "wrath", 2,
+                    "Your hunt shakes the dark.");
+            announce(String.format("%s has broken the teeth of the night.", killer.getName()));
+            return;
+        }
+
+        if (streak.kills >= 8 && !coolingDown("hunt-provision:" + killer.getUniqueId(), 240)) {
+            GptActions.invokeDivineMiracle(killer.getName(), "provision", "blessing", 2,
+                    "The hunter is provisioned.");
+            MemoryStore.createRewardDebt(killer.getName(), "Reward owed for an exceptional monster hunt",
+                    DivineDebt.Severity.MINOR, List.of("dropDivineReward", "blessPlayer", "summonSupplyChest"), 1);
+            streak.kills = 0;
+        }
+    }
+
+    private static boolean handleMiracleRequest(Player player, String normalized, PlayerMemory memory) {
+        if (player == null || !player.isOnline()) {
+            return false;
+        }
+
+        boolean asksForHelp = containsAny(normalized, "help", "save", "stuck", "please", "lord", "god");
+        boolean asksForDanger = containsAny(normalized, "dying", "save me", "protect", "monster", "mob", "zombie",
+                "skeleton", "creeper", "danger", "attack");
+        boolean asksForSupplies = containsAny(normalized, "food", "hungry", "starving", "supplies", "wood", "stone",
+                "torch", "need items", "give me");
+        boolean asksForPath = containsAny(normalized, "lost", "where", "path", "guide", "spire", "soul spire",
+                "ritual", "where do i go");
+        boolean objectivePointsToSpire = !memory.activeObjectives.isEmpty()
+                && containsAny(memory.activeObjectives.get(0).toLowerCase(), "spire", "ritual", "altar", "offering",
+                        "bell", "lectern");
+
+        if ((asksForDanger || player.getHealth() <= 7.0) && asksForHelp
+                && !coolingDown("help-salvation:" + player.getUniqueId(), 120)) {
+            GptActions.invokeDivineMiracle(player.getName(), "salvation", "blessing", 2,
+                    "Your plea is answered.");
+            whisper(player, "Breathe. I have pushed death back for a moment.");
+            return true;
+        }
+
+        if (asksForDanger && !coolingDown("help-banishment:" + player.getUniqueId(), 120)) {
+            GptActions.invokeDivineMiracle(player.getName(), "banishment", "wrath", 2,
+                    "The dark is driven from you.");
+            whisper(player, "Stand firm. The night recoils.");
+            return true;
+        }
+
+        if (asksForPath && (objectivePointsToSpire || normalized.contains("spire") || normalized.contains("ritual"))
+                && !coolingDown("help-pilgrimage:" + player.getUniqueId(), 150)) {
+            GptActions.invokeDivineMiracle(player.getName(), "pilgrimage", "soul", 2,
+                    "Follow the light to the ritual.");
+            whisper(player, "Follow the lights. They point toward the work I require.");
+            return true;
+        }
+
+        if (asksForSupplies && asksForHelp && !coolingDown("help-provision:" + player.getUniqueId(), 240)) {
+            GptActions.invokeDivineMiracle(player.getName(), "provision", "blessing", 1,
+                    "Needful things are given.");
+            whisper(player, "Use this well. Gifts are not idleness.");
+            return true;
+        }
+
+        return false;
+    }
+
+    public static void onAdvancement(Player player, String advancementKey) {
+        if (player == null || advancementKey == null || advancementKey.isBlank()
+                || advancementKey.startsWith("recipes/")) {
+            return;
+        }
+
+        String key = advancementKey.toLowerCase();
+        if (coolingDown("advancement:" + player.getUniqueId() + ":" + key, 300)) {
+            return;
+        }
+
+        boolean major = containsAny(key, "nether/", "end/", "dragon", "wither", "elytra", "totem", "ancient_city",
+                "bastion", "fortress", "beacon", "enchant");
+        String theme = major ? pick("blessing", "divine", "soul") : "blessing";
+        int intensity = major ? 2 : 1;
+        String readable = key.substring(key.lastIndexOf('/') + 1).replace('_', ' ');
+
+        if (major) {
+            GptActions.invokeDivineMiracle(player.getName(), "ascension", theme, intensity,
+                    "A great deed is written above.");
+            announce(String.format("%s has earned a mark in heaven: %s.", player.getName(), readable));
+            MemoryStore.createRewardDebt(player.getName(), "Reward owed for major advancement: " + readable,
+                    DivineDebt.Severity.MINOR, List.of("dropDivineReward", "blessPlayer", "summonSupplyChest"), 1);
+        } else if (!coolingDown("minor-advancement-scene:" + player.getUniqueId(), 90)) {
+            GptActions.stageDivineScene(player.getName(), "celebration", theme, intensity,
+                    "A mortal deed is noticed.");
+            whisper(player, pick("A small deed, but seen.", "Progress is a prayer when it is honest."));
         }
     }
 

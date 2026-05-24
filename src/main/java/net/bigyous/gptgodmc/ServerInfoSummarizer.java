@@ -25,6 +25,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 
 import net.bigyous.gptgodmc.GPT.CommandInsightTracker;
+import net.bigyous.gptgodmc.GPT.GptActions;
 import net.bigyous.gptgodmc.awareness.ActionOutcomeTracker;
 import net.bigyous.gptgodmc.awareness.AwarenessTracker;
 import net.bigyous.gptgodmc.awareness.PlayerIntentTracker;
@@ -849,6 +850,7 @@ public class ServerInfoSummarizer {
         sb.append("Ritual Awareness: " + StructureManager.getRitualAwarenessSummary() + "\n");
         sb.append("Ritual Mechanics: " + StructureManager.getRitualMechanicsSummary() + "\n");
         sb.append("Ritual Momentum: " + StructureManager.getRitualMomentumSummary() + "\n");
+        sb.append("Divine Favor Zones: " + GptActions.getFavorZoneSummary() + "\n");
         sb.append("Recent Sacred Changes: " + StructureManager.getRecentSacredChangesSummary() + "\n");
         sb.append("Command Truth: " + CommandInsightTracker.getSummary() + "\n");
         sb.append(ActionOutcomeTracker.getSummary() + "\n");
@@ -876,6 +878,7 @@ public class ServerInfoSummarizer {
             sb.append("Recent Settled Debts: " + MemoryStore.getRecentSettledDebtSummary(player) + "\n");
             sb.append("Judgment State: " + MemoryStore.get(player).getJudgmentSummary() + "\n");
             sb.append("Relationships: " + MemoryStore.get(player).getRelationshipSummary() + "\n");
+            sb.append("Divine Favor Tokens: " + GptActions.getPlayerFavorTokenSummary(player) + "\n");
             if (GPTGOD.gameMode.equals(GptGameMode.DEATHMATCH)) {
                 sb.append(String.format("Team: %s\n", GPTGOD.SCOREBOARD.getEntityTeam(player).getName()));
             }
