@@ -28,6 +28,20 @@ public class ReactionEngine {
             return;
         }
 
+        if (!coolingDown("scene-join:" + player.getUniqueId(), 180)) {
+            String mood = joinMood(update.getMemory());
+            if (mood.equals("blasphemer")) {
+                GptActions.stageDivineScene(player.getName(), "judgment", "wrath", 1,
+                        "The heavens remember your name.");
+            } else if (mood.equals("favored")) {
+                GptActions.stageDivineScene(player.getName(), "arrival", "blessing", 2,
+                        "A favored mortal returns.");
+            } else {
+                GptActions.stageDivineScene(player.getName(), "arrival", "divine", 1,
+                        "A mortal enters the island.");
+            }
+        }
+
         whisper(player, switch (joinMood(update.getMemory())) {
         case "new" -> String.format("Welcome, %s. Build something worthy of my gaze.", player.getName());
         case "favored" -> pick(
@@ -71,9 +85,18 @@ public class ReactionEngine {
                         "Punishment owed for repeated killing of mortals",
                         DivineDebt.Severity.MODERATE, List.of("decree", "smite", "spawnEntity"), 1);
             } else if (murders >= 3 && !coolingDown("murder-judgment:" + killer.getUniqueId(), 90)) {
+                GptActions.stageDivineScene(killer.getName(), "judgment", "wrath", 2,
+                        "Blood calls for judgment.");
                 announce(String.format("%s murders beneath my sky and now faces judgment.", killer.getName()));
                 GptActions.smitePlayer(killer.getName(), 1);
             }
+        }
+
+        if (!coolingDown("scene-death:" + player.getUniqueId(), 75)) {
+            String scene = memory.primaryTitle.equals("Blasphemer") ? "judgment" : "arrival";
+            String theme = memory.reputation >= 12 ? "blessing" : memory.primaryTitle.equals("Blasphemer") ? "wrath" : "soul";
+            GptActions.stageDivineScene(player.getName(), scene, theme, 1,
+                    memory.reputation >= 12 ? "Favor clings beyond death." : "Death has been witnessed.");
         }
 
         if (memory.reputation >= 12) {
@@ -96,6 +119,10 @@ public class ReactionEngine {
         switch (tone) {
         case PRAISE -> {
             if (!coolingDown("praise:" + player.getUniqueId(), 30)) {
+                if (!coolingDown("scene-praise:" + player.getUniqueId(), 120)) {
+                    GptActions.stageDivineScene(player.getName(), "reward", "blessing", 1,
+                            "Praise has reached the heavens.");
+                }
                 whisper(player, pick("Your reverence warms even my heavens.", "Your praise pleases me.",
                         "You speak wisely, and I remember it.", "Good. Continue, and I will cherish you."));
             }
@@ -113,11 +140,15 @@ public class ReactionEngine {
                         "Do not force my hand over a filthy tongue."));
                 MemoryStore.markOffenseWarned(player, "hostility");
             } else if (hostility == 2 && !coolingDown("hostile-decree:" + player.getUniqueId(), 55)) {
+                GptActions.stageDivineScene(player.getName(), "judgment", "wrath", 1,
+                        "Insolence darkens the air.");
                 decree(player, pick("Hold your tongue, mortal.", "Insolence invites consequence."));
                 MemoryStore.createPunishmentDebt(player.getName(), "Punishment owed for repeated hostility",
                         DivineDebt.Severity.MODERATE, List.of("decree", "announce", "command", "smite"), 1);
                 MemoryStore.markOffenseWarned(player, "hostility");
             } else if (hostility >= 3 && !coolingDown("hostile-punish:" + player.getUniqueId(), 70)) {
+                GptActions.stageDivineScene(player.getName(), "judgment", "wrath", 2,
+                        "Your tongue has summoned thunder.");
                 announce(String.format("%s's insolence ripens toward judgment.", player.getName()));
                 MemoryStore.createPunishmentDebt(player.getName(), "Punishment owed for chronic hostility",
                         DivineDebt.Severity.MODERATE, List.of("decree", "smite", "command"), 1);
@@ -127,12 +158,16 @@ public class ReactionEngine {
         case BLASPHEMY -> {
             int blasphemies = memory.getOffenseCount("blasphemy");
             if (blasphemies == 1 && !coolingDown("blasphemy:" + player.getUniqueId(), 45)) {
+                GptActions.stageDivineScene(player.getName(), "judgment", "wrath", 1,
+                        "Blasphemy has weight.");
                 decree(player, pick("Mind your tongue, mortal.", "Blasphemy stains your name.",
                         "Do not test my patience."));
                 MemoryStore.createPunishmentDebt(player.getName(), "Punishment owed for first blasphemy",
                         DivineDebt.Severity.MINOR, List.of("decree", "command", "smite"), 1);
                 MemoryStore.markOffenseWarned(player, "blasphemy");
             } else if (blasphemies == 2 && !coolingDown("blasphemy-announce:" + player.getUniqueId(), 60)) {
+                GptActions.stageDivineScene(player.getName(), "judgment", "wrath", 2,
+                        "Repentance is now demanded.");
                 announce(String.format("%s has spoken blasphemy twice and now owes repentance.", player.getName()));
                 MemoryStore.createPunishmentDebt(player.getName(), "Punishment owed for repeated blasphemy",
                         DivineDebt.Severity.MODERATE, List.of("decree", "smite", "spawnEntity"), 1);
@@ -140,6 +175,8 @@ public class ReactionEngine {
                 GptActions.smitePlayer(player.getName(), 1);
                 MemoryStore.markOffenseWarned(player, "blasphemy");
             } else if (blasphemies >= 3 && !coolingDown("blasphemy-smite:" + player.getUniqueId(), 75)) {
+                GptActions.stageDivineScene(player.getName(), "judgment", "wrath", 3,
+                        "The storm has chosen you.");
                 announce(String.format("%s has blasphemed again and earns the storm.", player.getName()));
                 GptActions.smitePlayer(player.getName(), 1);
             }
@@ -179,12 +216,16 @@ public class ReactionEngine {
                         String.format("Blood stirs between %s and %s.", attacker.getName(), target.getName())));
                 MemoryStore.markOffenseWarned(attacker, "violence");
             } else if (violence == 2 && !coolingDown("violence-decree:" + attacker.getUniqueId(), 75)) {
+                GptActions.stageDivineScene(attacker.getName(), "judgment", "wrath", 1,
+                        "Bloodshed has been weighed.");
                 decree(attacker, "Shed blood again and suffer.");
                 MemoryStore.createPunishmentDebt(attacker.getName(),
                         "Punishment owed for striking another mortal despite warning",
                         DivineDebt.Severity.MODERATE, List.of("decree", "smite", "spawnEntity"), 1);
                 MemoryStore.markOffenseWarned(attacker, "violence");
             } else if (violence >= 3 && !coolingDown("violence-punish:" + attacker.getUniqueId(), 120)) {
+                GptActions.stageDivineScene(attacker.getName(), "judgment", "wrath", 2,
+                        "Violence demands a sign.");
                 announce(String.format("%s spills mortal blood too freely.", attacker.getName()));
                 GptActions.smitePlayer(attacker.getName(), 1);
             }
@@ -220,6 +261,11 @@ public class ReactionEngine {
             return;
         }
         announce(String.format("%s is now known as %s.", player.getName(), update.getNewTitle()));
+        String theme = update.getNewTitle().equals("Blasphemer") || update.getNewTitle().equals("Doomed")
+                ? "wrath"
+                : "blessing";
+        GptActions.stageDivineScene(player.getName(), "celebration", theme, 1,
+                "A new name is written in heaven.");
     }
 
     private static boolean coolingDown(String key, int seconds) {

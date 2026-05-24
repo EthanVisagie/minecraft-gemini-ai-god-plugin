@@ -3,6 +3,7 @@ package net.bigyous.gptgodmc.GPT;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.Locale;
@@ -11,20 +12,32 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Color;
+import org.bukkit.FireworkEffect;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
+import org.bukkit.Sound;
+import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockState;
 import org.bukkit.block.Chest;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Firework;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.FireworkMeta;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Score;
 import org.bukkit.scoreboard.Team;
+import org.bukkit.util.Vector;
 
 import net.bigyous.gptgodmc.EventLogger;
 import net.bigyous.gptgodmc.GPTGOD;
@@ -71,6 +84,469 @@ public class GptActions {
 
         private static void recordActionFailure(String action, String detail) {
                 ActionOutcomeTracker.failure(action, detail);
+        }
+
+        private static Location resolveTargetLocation(String targetName) {
+                if (targetName == null || targetName.isBlank()) {
+                        return null;
+                }
+                Player player = GPTGOD.SERVER.getPlayer(targetName);
+                if (player != null) {
+                        return player.getLocation();
+                }
+                Structure structure = StructureManager.getStructure(targetName);
+                return structure == null ? null : structure.getLocation();
+        }
+
+        private static int clampIntensity(int intensity) {
+                return Math.max(1, Math.min(3, intensity));
+        }
+
+        private static String normalizeTheme(String theme) {
+                if (theme == null || theme.isBlank()) {
+                        return "divine";
+                }
+                String normalized = theme.toLowerCase(Locale.ROOT).trim();
+                if (containsAny(normalized, "wrath", "curse", "punish", "storm", "judg")) {
+                        return "wrath";
+                }
+                if (containsAny(normalized, "soul", "spirit", "spire", "ritual")) {
+                        return "soul";
+                }
+                if (containsAny(normalized, "fire", "flame", "ash")) {
+                        return "fire";
+                }
+                if (containsAny(normalized, "reward", "bless", "holy", "grace", "gift")) {
+                        return "blessing";
+                }
+                if (containsAny(normalized, "void", "shadow", "dark")) {
+                        return "void";
+                }
+                return "divine";
+        }
+
+        private static Particle primaryParticle(String theme) {
+                return switch (normalizeTheme(theme)) {
+                case "wrath" -> Particle.ELECTRIC_SPARK;
+                case "soul" -> Particle.SOUL_FIRE_FLAME;
+                case "fire" -> Particle.FLAME;
+                case "void" -> Particle.PORTAL;
+                case "blessing" -> Particle.FIREWORK;
+                default -> Particle.END_ROD;
+                };
+        }
+
+        private static Particle secondaryParticle(String theme) {
+                return switch (normalizeTheme(theme)) {
+                case "wrath" -> Particle.WITCH;
+                case "soul" -> Particle.SOUL;
+                case "fire" -> Particle.CAMPFIRE_COSY_SMOKE;
+                case "void" -> Particle.REVERSE_PORTAL;
+                case "blessing" -> Particle.ENCHANT;
+                default -> Particle.WAX_OFF;
+                };
+        }
+
+        private static Sound primarySound(String theme) {
+                return switch (normalizeTheme(theme)) {
+                case "wrath" -> Sound.ENTITY_LIGHTNING_BOLT_THUNDER;
+                case "soul" -> Sound.PARTICLE_SOUL_ESCAPE;
+                case "fire" -> Sound.ITEM_FIRECHARGE_USE;
+                case "void" -> Sound.ENTITY_ENDERMAN_TELEPORT;
+                case "blessing" -> Sound.ENTITY_PLAYER_LEVELUP;
+                default -> Sound.BLOCK_BEACON_ACTIVATE;
+                };
+        }
+
+        private static Material ritualMaterial(String theme) {
+                return switch (normalizeTheme(theme)) {
+                case "wrath" -> Material.REDSTONE_BLOCK;
+                case "soul" -> Material.CRYING_OBSIDIAN;
+                case "fire" -> Material.MAGMA_BLOCK;
+                case "void" -> Material.OBSIDIAN;
+                case "blessing" -> Material.GLOWSTONE;
+                default -> Material.AMETHYST_BLOCK;
+                };
+        }
+
+        private static Material pillarMaterial(String theme) {
+                return switch (normalizeTheme(theme)) {
+                case "wrath" -> Material.RED_STAINED_GLASS;
+                case "soul" -> Material.LIGHT_BLUE_STAINED_GLASS;
+                case "fire" -> Material.ORANGE_STAINED_GLASS;
+                case "void" -> Material.PURPLE_STAINED_GLASS;
+                case "blessing" -> Material.YELLOW_STAINED_GLASS;
+                default -> Material.WHITE_STAINED_GLASS;
+                };
+        }
+
+        private static Material pillarCoreMaterial(String theme) {
+                return switch (normalizeTheme(theme)) {
+                case "wrath" -> Material.REDSTONE_LAMP;
+                case "soul" -> Material.SEA_LANTERN;
+                case "fire" -> Material.SHROOMLIGHT;
+                case "void" -> Material.CRYING_OBSIDIAN;
+                case "blessing" -> Material.GLOWSTONE;
+                default -> Material.AMETHYST_BLOCK;
+                };
+        }
+
+        private static Color primaryColor(String theme) {
+                return switch (normalizeTheme(theme)) {
+                case "wrath" -> Color.RED;
+                case "soul" -> Color.AQUA;
+                case "fire" -> Color.ORANGE;
+                case "void" -> Color.PURPLE;
+                case "blessing" -> Color.YELLOW;
+                default -> Color.WHITE;
+                };
+        }
+
+        private static Color secondaryColor(String theme) {
+                return switch (normalizeTheme(theme)) {
+                case "wrath" -> Color.BLACK;
+                case "soul" -> Color.TEAL;
+                case "fire" -> Color.RED;
+                case "void" -> Color.NAVY;
+                case "blessing" -> Color.LIME;
+                default -> Color.SILVER;
+                };
+        }
+
+        private static ChatColor titleColor(String theme) {
+                return switch (normalizeTheme(theme)) {
+                case "wrath" -> ChatColor.RED;
+                case "soul" -> ChatColor.AQUA;
+                case "fire" -> ChatColor.GOLD;
+                case "void" -> ChatColor.DARK_PURPLE;
+                case "blessing" -> ChatColor.YELLOW;
+                default -> ChatColor.LIGHT_PURPLE;
+                };
+        }
+
+        private static EntityType trialEntity(String theme) {
+                return switch (normalizeTheme(theme)) {
+                case "wrath" -> EntityType.HUSK;
+                case "soul" -> EntityType.STRAY;
+                case "fire" -> EntityType.MAGMA_CUBE;
+                case "void" -> EntityType.ENDERMAN;
+                default -> EntityType.ZOMBIE;
+                };
+        }
+
+        private static Schema themeSchema(String description) {
+                Schema schema = new Schema(Schema.Type.STRING, description);
+                schema.setEnumValues(Arrays.asList("divine", "blessing", "soul", "fire", "wrath", "void"));
+                return schema;
+        }
+
+        private static Schema intensitySchema() {
+                return new Schema(Schema.Type.INTEGER, "spectacle intensity from 1 to 3; use 1 for subtle, 2 for major moments, 3 for rare climaxes");
+        }
+
+        private static Schema atmosphereSchema() {
+                Schema schema = new Schema(Schema.Type.STRING,
+                                "island atmosphere mood: dawn, storm, night, soul, clear, or eclipse");
+                schema.setEnumValues(Arrays.asList("dawn", "storm", "night", "soul", "clear", "eclipse"));
+                return schema;
+        }
+
+        private static Schema sceneSchema() {
+                Schema schema = new Schema(Schema.Type.STRING,
+                                "curated divine scene: arrival, objective, reward, judgment, trial, spire, or celebration");
+                schema.setEnumValues(Arrays.asList("arrival", "objective", "reward", "judgment", "trial", "spire",
+                                "celebration"));
+                return schema;
+        }
+
+        private static void scheduleDivinePulses(Location center, String theme, int intensity) {
+                Location base = center.clone();
+                int clamped = clampIntensity(intensity);
+                int pulses = 3 + clamped;
+                for (int step = 0; step < pulses; step++) {
+                        int pulse = step;
+                        Bukkit.getScheduler().runTaskLater(plugin, () -> spawnDivinePulse(base.clone(), theme, clamped, pulse),
+                                        pulse * 8L);
+                }
+        }
+
+        private static void spawnDivinePulse(Location center, String theme, int intensity, int pulse) {
+                World world = center.getWorld();
+                if (world == null) {
+                        return;
+                }
+
+                Location above = center.clone().add(0, 1.2 + (pulse * 0.08), 0);
+                double radius = 1.8 + intensity + (pulse * 0.35);
+                Particle primary = primaryParticle(theme);
+                Particle secondary = secondaryParticle(theme);
+                world.playSound(above, primarySound(theme), 0.75f + intensity * 0.25f, 0.7f + pulse * 0.08f);
+                world.spawnParticle(primary, above, 45 + intensity * 35, radius / 3, 0.8 + intensity * 0.25,
+                                radius / 3, 0.03);
+                world.spawnParticle(secondary, above, 20 + intensity * 20, radius / 4, 0.5, radius / 4, 0.01);
+
+                for (int i = 0; i < 48; i++) {
+                        double angle = (Math.PI * 2 * i) / 48.0;
+                        Location ring = above.clone().add(Math.cos(angle) * radius, Math.sin(pulse * 0.6) * 0.25,
+                                        Math.sin(angle) * radius);
+                        world.spawnParticle(primary, ring, 1, 0.02, 0.02, 0.02, 0.0);
+                }
+
+                if (pulse == 0 && (intensity >= 3 || normalizeTheme(theme).equals("wrath"))) {
+                        world.strikeLightningEffect(center);
+                }
+        }
+
+        private static void spawnFireworkBurst(Location center, String theme, int intensity) {
+                World world = center.getWorld();
+                if (world == null) {
+                        return;
+                }
+                int count = clampIntensity(intensity) + 1;
+                for (int i = 0; i < count; i++) {
+                        Location launch = center.clone().add((Math.random() - 0.5) * 4, 1.5 + i * 0.4,
+                                        (Math.random() - 0.5) * 4);
+                        Firework firework = world.spawn(launch, Firework.class);
+                        FireworkMeta meta = firework.getFireworkMeta();
+                        meta.addEffect(FireworkEffect.builder()
+                                        .with(FireworkEffect.Type.BALL_LARGE)
+                                        .withColor(primaryColor(theme))
+                                        .withFade(secondaryColor(theme))
+                                        .trail(true)
+                                        .flicker(true)
+                                        .build());
+                        meta.setPower(1);
+                        firework.setFireworkMeta(meta);
+                }
+        }
+
+        private static void sendDivineTitle(Player player, String title, String subtitle, String theme) {
+                String safeTitle = compactTitle(title, 32);
+                String safeSubtitle = compactTitle(subtitle, 64);
+                ChatColor color = titleColor(theme);
+                player.sendTitle(color + safeTitle, ChatColor.GRAY + safeSubtitle, 10, 55, 20);
+        }
+
+        private static String compactTitle(String text, int maxLength) {
+                if (text == null || text.isBlank()) {
+                        return "";
+                }
+                String normalized = text.replaceAll("\\s+", " ").trim();
+                return normalized.length() > maxLength ? normalized.substring(0, maxLength - 3) + "..." : normalized;
+        }
+
+        private static List<Player> playersNear(Location center, double radius) {
+                World world = center.getWorld();
+                if (world == null) {
+                        return List.of();
+                }
+                double maxDistance = radius * radius;
+                return world.getPlayers().stream()
+                                .filter(player -> player.getLocation().distanceSquared(center) <= maxDistance)
+                                .toList();
+        }
+
+        private static String sceneTitle(String sceneType) {
+                String scene = normalizeScene(sceneType);
+                return switch (scene) {
+                case "arrival" -> "The Heavens Open";
+                case "objective" -> "A Task Is Given";
+                case "reward" -> "Favor Descends";
+                case "judgment" -> "Judgment Falls";
+                case "trial" -> "Trial Summoned";
+                case "spire" -> "The Spire Answers";
+                case "celebration" -> "The Island Rejoices";
+                default -> "Divine Sign";
+                };
+        }
+
+        private static String sceneSubtitle(String sceneType, String message) {
+                if (message != null && !message.isBlank()) {
+                        return message;
+                }
+                String scene = normalizeScene(sceneType);
+                return switch (scene) {
+                case "arrival" -> "A presence gathers above the island.";
+                case "objective" -> "The heavens name your work.";
+                case "reward" -> "Grace takes visible form.";
+                case "judgment" -> "The air remembers your offense.";
+                case "trial" -> "Stand and prove thy worth.";
+                case "spire" -> "Soul-fire stirs in the stones.";
+                case "celebration" -> "Your deed echoes beyond the shore.";
+                default -> "The world bends for a moment.";
+                };
+        }
+
+        private static String normalizeScene(String sceneType) {
+                if (sceneType == null || sceneType.isBlank()) {
+                        return "celebration";
+                }
+                String normalized = sceneType.toLowerCase(Locale.ROOT).trim();
+                if (containsAny(normalized, "arriv", "appear", "presence")) {
+                        return "arrival";
+                }
+                if (containsAny(normalized, "objective", "quest", "task", "mission")) {
+                        return "objective";
+                }
+                if (containsAny(normalized, "reward", "gift", "favor", "bless")) {
+                        return "reward";
+                }
+                if (containsAny(normalized, "judge", "judgment", "punish", "wrath", "curse")) {
+                        return "judgment";
+                }
+                if (containsAny(normalized, "trial", "challenge", "test")) {
+                        return "trial";
+                }
+                if (containsAny(normalized, "spire", "soul", "ritual")) {
+                        return "spire";
+                }
+                return "celebration";
+        }
+
+        private static void applyAtmosphere(World world, String mood) {
+                if (world == null) {
+                        return;
+                }
+                String normalized = mood == null ? "clear" : mood.toLowerCase(Locale.ROOT).trim();
+                if (containsAny(normalized, "storm", "wrath", "thunder", "judg")) {
+                        world.setStorm(true);
+                        world.setThundering(true);
+                        world.setTime(16000);
+                } else if (containsAny(normalized, "dawn", "bless", "holy", "reward", "clear")) {
+                        world.setStorm(false);
+                        world.setThundering(false);
+                        world.setTime(23000);
+                } else if (containsAny(normalized, "night", "void", "eclipse", "dark")) {
+                        world.setStorm(false);
+                        world.setThundering(false);
+                        world.setTime(18000);
+                } else if (containsAny(normalized, "soul", "ritual", "spire", "dusk")) {
+                        world.setStorm(false);
+                        world.setThundering(false);
+                        world.setTime(12500);
+                } else {
+                        world.setStorm(false);
+                        world.setThundering(false);
+                }
+        }
+
+        private static String sceneMood(String sceneType, String theme) {
+                String scene = normalizeScene(sceneType);
+                if (scene.equals("judgment")) {
+                        return "storm";
+                }
+                if (scene.equals("spire") || normalizeTheme(theme).equals("soul")) {
+                        return "soul";
+                }
+                if (scene.equals("trial") || normalizeTheme(theme).equals("void")) {
+                        return "night";
+                }
+                if (scene.equals("reward") || scene.equals("celebration") || normalizeTheme(theme).equals("blessing")) {
+                        return "dawn";
+                }
+                return "clear";
+        }
+
+        private static void summonTemporaryLightPillar(Location center, String theme, int intensity, int durationSeconds) {
+                World world = center.getWorld();
+                if (world == null) {
+                        return;
+                }
+                Block base = findSurfaceBlock(center, 0, 0);
+                if (base == null) {
+                        base = center.getBlock();
+                }
+                List<BlockState> originalStates = new ArrayList<>();
+                int height = 5 + clampIntensity(intensity) * 2;
+                for (int y = 0; y < height; y++) {
+                        Block block = world.getBlockAt(base.getX(), base.getY() + y, base.getZ());
+                        if (!block.isPassable() || block.isLiquid()) {
+                                continue;
+                        }
+                        originalStates.add(block.getState());
+                        block.setType(y % 3 == 0 ? pillarCoreMaterial(theme) : pillarMaterial(theme), false);
+                }
+                int[][] feet = new int[][] { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+                for (int[] foot : feet) {
+                        Block block = findSurfaceBlock(base.getLocation(), foot[0], foot[1]);
+                        if (block != null && block.isPassable() && !block.isLiquid()) {
+                                originalStates.add(block.getState());
+                                block.setType(pillarMaterial(theme), false);
+                        }
+                }
+                restoreBlocksLater(originalStates, durationSeconds);
+        }
+
+        private static int spawnTrialEntities(Player player, String theme, int intensity) {
+                EntityType type = trialEntity(theme);
+                int count = Math.min(4, clampIntensity(intensity) + 1);
+                int spawned = 0;
+                for (int i = 0; i < count; i++) {
+                        double angle = (Math.PI * 2 * i) / count;
+                        Location candidate = player.getLocation().clone().add(Math.cos(angle) * 7, 0,
+                                        Math.sin(angle) * 7);
+                        Location safe = BukkitUtils.getSafeLocation(candidate, true, 24);
+                        Location spawn = safe == null ? candidate : safe;
+                        Entity entity = player.getWorld().spawnEntity(spawn, type, true);
+                        entity.setGlowing(true);
+                        entity.customName(Component.text("Trial of " + theme, titleColor(theme) == ChatColor.RED
+                                        ? NamedTextColor.RED
+                                        : NamedTextColor.LIGHT_PURPLE));
+                        entity.setCustomNameVisible(true);
+                        spawned++;
+                }
+                return spawned;
+        }
+
+        private static Block findSurfaceBlock(Location origin, int dx, int dz) {
+                World world = origin.getWorld();
+                if (world == null) {
+                        return null;
+                }
+                int x = origin.getBlockX() + dx;
+                int z = origin.getBlockZ() + dz;
+                int high = Math.min(world.getMaxHeight() - 2, origin.getBlockY() + 5);
+                int low = Math.max(world.getMinHeight() + 1, origin.getBlockY() - 6);
+                for (int y = high; y >= low; y--) {
+                        Block ground = world.getBlockAt(x, y - 1, z);
+                        Block target = world.getBlockAt(x, y, z);
+                        if (!ground.isPassable() && target.isPassable() && !target.isLiquid()) {
+                                return target;
+                        }
+                }
+                return null;
+        }
+
+        private static void restoreBlocksLater(List<BlockState> states, int durationSeconds) {
+                if (states.isEmpty()) {
+                        return;
+                }
+                int ticks = Math.max(5, Math.min(60, durationSeconds)) * 20;
+                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                        for (BlockState state : states) {
+                                state.update(true, false);
+                        }
+                }, ticks);
+        }
+
+        private static void pulseObjectiveTargets(List<PlayerMemory> targets, String theme, int intensity, String title,
+                        String subtitle) {
+                for (PlayerMemory memory : targets) {
+                        Player player = GPTGOD.SERVER.getPlayerExact(memory.playerName);
+                        if (player != null) {
+                                player.playSound(player.getLocation(), Sound.BLOCK_BELL_USE, 0.7f, 1.1f);
+                                sendDivineTitle(player, title, subtitle, theme);
+                                scheduleDivinePulses(player.getLocation(), theme, intensity);
+                        }
+                }
+        }
+
+        private static void pulseSacredStructure(String theme, int intensity) {
+                Structure sacredStructure = StructureManager.getSacredStructure();
+                if (sacredStructure != null) {
+                        scheduleDivinePulses(sacredStructure.getLocation(), theme, intensity);
+                        spawnFireworkBurst(sacredStructure.getLocation(), theme, intensity);
+                }
         }
 
         private static void staticWhisper(String playerName, String message) {
@@ -255,6 +731,8 @@ public class GptActions {
                 }
                 player.getInventory().addItem(new ItemStack(material, count));
                 player.sendRichMessage(String.format("<i>A %s appeared in your inventory</i>", itemId));
+                player.getWorld().playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.8f, 1.2f);
+                scheduleDivinePulses(player.getLocation(), "blessing", 1);
                 MemoryStore.recordRewardGranted(playerName, "giveItem");
                 EventLogger.addLoggable(
                                 new GPTActionLoggable(String.format("gave %d %s to %s", count, itemId, playerName)));
@@ -379,6 +857,8 @@ public class GptActions {
                 chest.open();
                 WorldManager.getCurrentWorld().spawnParticle(Particle.WAX_OFF, chest.getLocation().toCenterLocation(),
                                 100, 2, 3, 2);
+                WorldManager.getCurrentWorld().playSound(chest.getLocation(), Sound.BLOCK_CHEST_OPEN, 1.0f, 0.65f);
+                scheduleDivinePulses(chest.getLocation(), "blessing", 1);
                 MemoryStore.recordRewardGranted(playerName, "summonSupplyChest");
                 EventLogger.addLoggable(
                                 new GPTActionLoggable(String.format("summoned a chest with: %s inside next to %s",
@@ -543,18 +1023,22 @@ public class GptActions {
                 if (GPTGOD.GPT_OBJECTIVES.getDisplaySlot() == null)
                         GPTGOD.GPT_OBJECTIVES.setDisplaySlot(DisplaySlot.SIDEBAR);
                 MemoryStore.recordObjectiveAssigned(objective);
+                pulseObjectiveTargets(targets, "soul", 1, "A Task Is Given", "The heavens turn their gaze.");
                 EventLogger.addLoggable(new GPTActionLoggable(String.format("set objective %s", objective)));
                 recordActionSuccess("setObjective", "active objective: " + objective);
 
         };
         private static SimpFunction<JsonObject> clearObjective = (JsonObject args) -> {
                 String objective = gson.fromJson(args.get("objective"), String.class);
+                List<PlayerMemory> targets = MemoryStore.peekObjectiveTargets(objective);
                 clearObjectiveDisplay(objective);
                 GptObjectiveTracker tracker = objectiveTrackers.remove(objective);
                 if (tracker != null) {
                         tracker.cancel();
                 }
                 MemoryStore.recordObjectiveCompleted(objective);
+                pulseObjectiveTargets(targets, "blessing", 2, "Task Fulfilled", "Favor gathers in the air.");
+                pulseSacredStructure("soul", 2);
                 refreshObjectiveDisplay();
                 EventLogger.addLoggable(
                                 new GPTActionLoggable(String.format("declared objective %s as completed", objective)));
@@ -627,6 +1111,347 @@ public class GptActions {
                 ImageUtils.takePicture(structure, structureName);
                 recordActionSuccess("lookAtStructure", "requested render for " + structureName);
         };
+        private static SimpFunction<JsonObject> divineOmen = (JsonObject args) -> {
+                String target = gson.fromJson(args.get("target"), String.class);
+                String theme = normalizeTheme(gson.fromJson(args.get("theme"), String.class));
+                int intensity = clampIntensity(gson.fromJson(args.get("intensity"), Integer.class));
+                Location location = resolveTargetLocation(target);
+                if (location == null) {
+                        recordActionFailure("divineOmen", "unknown player or structure: " + target);
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("failed to manifest %s omen at %s (unknown target)", theme,
+                                                        target)));
+                        return;
+                }
+
+                World world = location.getWorld();
+                if (world == null) {
+                        recordActionFailure("divineOmen", "target has no world: " + target);
+                        return;
+                }
+
+                if (theme.equals("wrath") && intensity >= 2) {
+                        world.setStorm(true);
+                        world.setThundering(true);
+                }
+                scheduleDivinePulses(location, theme, intensity);
+                EventLogger.addLoggable(new GPTActionLoggable(
+                                String.format("manifested a %s omen around %s", theme, target)));
+                recordActionSuccess("divineOmen",
+                                String.format("manifested %s omen at %s with intensity %d", theme, target, intensity));
+        };
+        private static SimpFunction<JsonObject> blessPlayer = (JsonObject args) -> {
+                String playerName = gson.fromJson(args.get("playerName"), String.class);
+                String blessing = normalizeTheme(gson.fromJson(args.get("blessing"), String.class));
+                int intensity = clampIntensity(gson.fromJson(args.get("intensity"), Integer.class));
+                Player player = GPTGOD.SERVER.getPlayer(playerName);
+                if (player == null) {
+                        recordActionFailure("blessPlayer", "player not online: " + playerName);
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("failed to bless %s (player not online)", playerName)));
+                        return;
+                }
+
+                int duration = 20 * (25 + intensity * 20);
+                player.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, duration, 0));
+                player.addPotionEffect(new PotionEffect(PotionEffectType.ABSORPTION, duration, intensity - 1));
+                if (blessing.equals("fire")) {
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, duration, 0));
+                } else if (blessing.equals("soul") || blessing.equals("void")) {
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, duration, 0));
+                } else {
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.REGENERATION, duration, intensity - 1));
+                }
+
+                player.sendMessage(Component.text("A blessing settles upon you.", NamedTextColor.GOLD));
+                scheduleDivinePulses(player.getLocation(), blessing, intensity);
+                MemoryStore.recordRewardGranted(playerName, "divine blessing");
+                EventLogger.addLoggable(new GPTActionLoggable(
+                                String.format("blessed %s with a %s sign", playerName, blessing)));
+                recordActionSuccess("blessPlayer",
+                                String.format("blessed %s with %s intensity %d", playerName, blessing, intensity));
+        };
+        private static SimpFunction<JsonObject> cursePlayer = (JsonObject args) -> {
+                String playerName = gson.fromJson(args.get("playerName"), String.class);
+                String curse = normalizeTheme(gson.fromJson(args.get("curse"), String.class));
+                int intensity = clampIntensity(gson.fromJson(args.get("intensity"), Integer.class));
+                Player player = GPTGOD.SERVER.getPlayer(playerName);
+                if (player == null) {
+                        recordActionFailure("cursePlayer", "player not online: " + playerName);
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("failed to curse %s (player not online)", playerName)));
+                        return;
+                }
+
+                int duration = 20 * (12 + intensity * 10);
+                player.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, duration, 0));
+                player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, duration, Math.max(0, intensity - 1)));
+                if (curse.equals("void")) {
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.DARKNESS, duration, 0));
+                } else if (curse.equals("wrath") && intensity >= 2) {
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.WEAKNESS, duration, 0));
+                } else if (curse.equals("soul") && intensity >= 2) {
+                        player.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, 20 * 3, 0));
+                }
+
+                player.sendMessage(Component.text("A judgment grips your bones.", NamedTextColor.RED));
+                scheduleDivinePulses(player.getLocation(), curse.equals("divine") ? "wrath" : curse, intensity);
+                MemoryStore.recordPunishmentDelivered(playerName, "divine curse");
+                EventLogger.addLoggable(new GPTActionLoggable(
+                                String.format("cursed %s with a %s sign", playerName, curse)));
+                recordActionSuccess("cursePlayer",
+                                String.format("cursed %s with %s intensity %d", playerName, curse, intensity));
+        };
+        private static SimpFunction<JsonObject> summonRitualCircle = (JsonObject args) -> {
+                String target = gson.fromJson(args.get("target"), String.class);
+                String theme = normalizeTheme(gson.fromJson(args.get("theme"), String.class));
+                int durationSeconds = gson.fromJson(args.get("durationSeconds"), Integer.class);
+                Location location = resolveTargetLocation(target);
+                if (location == null) {
+                        recordActionFailure("summonRitualCircle", "unknown player or structure: " + target);
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("failed to summon ritual circle at %s (unknown target)", target)));
+                        return;
+                }
+
+                Material material = ritualMaterial(theme);
+                List<BlockState> originalStates = new ArrayList<>();
+                int placed = 0;
+                int radius = 4;
+                for (int i = 0; i < 12; i++) {
+                        double angle = (Math.PI * 2 * i) / 12.0;
+                        int dx = (int) Math.round(Math.cos(angle) * radius);
+                        int dz = (int) Math.round(Math.sin(angle) * radius);
+                        Block block = findSurfaceBlock(location, dx, dz);
+                        if (block == null) {
+                                continue;
+                        }
+                        originalStates.add(block.getState());
+                        block.setType(material, false);
+                        placed++;
+                }
+
+                if (placed < 3) {
+                        recordActionFailure("summonRitualCircle", "not enough safe surface blocks around: " + target);
+                        for (BlockState state : originalStates) {
+                                state.update(true, false);
+                        }
+                        return;
+                }
+
+                restoreBlocksLater(originalStates, durationSeconds);
+                scheduleDivinePulses(location, theme, 3);
+                EventLogger.addLoggable(new GPTActionLoggable(
+                                String.format("summoned a temporary %s ritual circle at %s", theme, target)));
+                recordActionSuccess("summonRitualCircle",
+                                String.format("placed %d temporary %s blocks around %s for %d seconds", placed,
+                                                material.name().toLowerCase(Locale.ROOT), target,
+                                                Math.max(5, Math.min(60, durationSeconds))));
+        };
+        private static SimpFunction<JsonObject> dropDivineReward = (JsonObject args) -> {
+                String playerName = gson.fromJson(args.get("playerName"), String.class);
+                String itemId = gson.fromJson(args.get("itemId"), String.class);
+                int count = gson.fromJson(args.get("count"), Integer.class);
+                String displayName = gson.fromJson(args.get("displayName"), String.class);
+                Player player = GPTGOD.SERVER.getPlayer(playerName);
+                if (player == null) {
+                        recordActionFailure("dropDivineReward", "player not online: " + playerName);
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("failed to drop reward for %s (player not online)", playerName)));
+                        return;
+                }
+
+                Material material = Material.matchMaterial(itemId);
+                if (material == null) {
+                        recordActionFailure("dropDivineReward", "invalid material: " + itemId);
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("failed to drop invalid reward %s for %s", itemId, playerName)));
+                        return;
+                }
+
+                int safeCount = Math.max(1, Math.min(material.getMaxStackSize(), count));
+                ItemStack stack = new ItemStack(material, safeCount);
+                if (displayName != null && !displayName.isBlank()) {
+                        ItemMeta meta = stack.getItemMeta();
+                        if (meta != null) {
+                                meta.displayName(Component.text(displayName, NamedTextColor.GOLD)
+                                                .decoration(TextDecoration.BOLD, true));
+                                stack.setItemMeta(meta);
+                        }
+                }
+
+                Location dropLocation = player.getLocation().clone().add(0, 2.5, 0);
+                Item dropped = player.getWorld().dropItem(dropLocation, stack);
+                dropped.setGlowing(true);
+                dropped.setCustomNameVisible(displayName != null && !displayName.isBlank());
+                if (displayName != null && !displayName.isBlank()) {
+                        dropped.customName(Component.text(displayName, NamedTextColor.GOLD)
+                                        .decoration(TextDecoration.BOLD, true));
+                }
+                dropped.setVelocity(new Vector(0, 0.25, 0));
+                scheduleDivinePulses(player.getLocation(), "blessing", 2);
+                MemoryStore.recordRewardGranted(playerName, "visible divine reward");
+                EventLogger.addLoggable(new GPTActionLoggable(
+                                String.format("dropped %d %s as a visible divine reward for %s", safeCount, itemId,
+                                                playerName)));
+                recordActionSuccess("dropDivineReward",
+                                String.format("dropped %d %s for %s", safeCount, itemId, playerName));
+        };
+        private static SimpFunction<JsonObject> divineTitle = (JsonObject args) -> {
+                String playerName = gson.fromJson(args.get("playerName"), String.class);
+                String title = gson.fromJson(args.get("title"), String.class);
+                String subtitle = gson.fromJson(args.get("subtitle"), String.class);
+                String theme = normalizeTheme(gson.fromJson(args.get("theme"), String.class));
+                Player player = GPTGOD.SERVER.getPlayer(playerName);
+                if (player == null) {
+                        recordActionFailure("divineTitle", "player not online: " + playerName);
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("failed to show divine title to %s (player not online)",
+                                                        playerName)));
+                        return;
+                }
+
+                sendDivineTitle(player, title, subtitle, theme);
+                player.playSound(player.getLocation(), primarySound(theme), 1.0f, 0.85f);
+                EventLogger.addLoggable(new GPTActionLoggable(
+                                String.format("showed divine title \"%s\" to %s", compactTitle(title, 32),
+                                                playerName)));
+                recordActionSuccess("divineTitle", "displayed title to " + playerName);
+        };
+        private static SimpFunction<JsonObject> fireworkShow = (JsonObject args) -> {
+                String target = gson.fromJson(args.get("target"), String.class);
+                String theme = normalizeTheme(gson.fromJson(args.get("theme"), String.class));
+                int intensity = clampIntensity(gson.fromJson(args.get("intensity"), Integer.class));
+                Location location = resolveTargetLocation(target);
+                if (location == null) {
+                        recordActionFailure("fireworkShow", "unknown player or structure: " + target);
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("failed to launch %s fireworks at %s (unknown target)", theme,
+                                                        target)));
+                        return;
+                }
+
+                spawnFireworkBurst(location, theme, intensity);
+                scheduleDivinePulses(location, theme, Math.max(1, intensity - 1));
+                EventLogger.addLoggable(
+                                new GPTActionLoggable(String.format("launched %s fireworks at %s", theme, target)));
+                recordActionSuccess("fireworkShow",
+                                String.format("launched %s fireworks at %s intensity %d", theme, target, intensity));
+        };
+        private static SimpFunction<JsonObject> setDivineAtmosphere = (JsonObject args) -> {
+                String mood = gson.fromJson(args.get("mood"), String.class);
+                String normalized = mood == null ? "clear" : mood.toLowerCase(Locale.ROOT).trim();
+                World world = WorldManager.getCurrentWorld();
+                if (world == null) {
+                        recordActionFailure("setDivineAtmosphere", "no current world loaded");
+                        return;
+                }
+
+                applyAtmosphere(world, normalized);
+                for (Player player : world.getPlayers()) {
+                        player.playSound(player.getLocation(), Sound.BLOCK_BEACON_POWER_SELECT, 0.7f, 0.65f);
+                        scheduleDivinePulses(player.getLocation(), normalizeTheme(normalized), 1);
+                }
+                EventLogger.addLoggable(new GPTActionLoggable("changed the island atmosphere to " + normalized));
+                recordActionSuccess("setDivineAtmosphere", "set island atmosphere to " + normalized);
+        };
+        private static SimpFunction<JsonObject> summonTrial = (JsonObject args) -> {
+                String playerName = gson.fromJson(args.get("playerName"), String.class);
+                String theme = normalizeTheme(gson.fromJson(args.get("theme"), String.class));
+                int intensity = clampIntensity(gson.fromJson(args.get("intensity"), Integer.class));
+                Player player = GPTGOD.SERVER.getPlayer(playerName);
+                if (player == null) {
+                        recordActionFailure("summonTrial", "player not online: " + playerName);
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("failed to summon trial for %s (player not online)", playerName)));
+                        return;
+                }
+
+                int spawned = spawnTrialEntities(player, theme, intensity);
+                sendDivineTitle(player, "Trial Summoned", "Stand and prove thy worth.", theme);
+                scheduleDivinePulses(player.getLocation(), theme, intensity);
+                MemoryStore.createRewardDebt(playerName, "Reward owed if the divine trial is survived",
+                                net.bigyous.gptgodmc.memory.DivineDebt.Severity.MODERATE,
+                                List.of("dropDivineReward", "blessPlayer", "summonSupplyChest"), 2);
+                EventLogger.addLoggable(new GPTActionLoggable(
+                                String.format("summoned a %s trial of %d %s near %s", theme, spawned,
+                                                trialEntity(theme).name().toLowerCase(Locale.ROOT), playerName)));
+                recordActionSuccess("summonTrial",
+                                String.format("summoned %d %s trial entities near %s", spawned,
+                                                trialEntity(theme).name().toLowerCase(Locale.ROOT), playerName));
+        };
+        private static SimpFunction<JsonObject> divineScene = (JsonObject args) -> {
+                String target = gson.fromJson(args.get("target"), String.class);
+                String sceneType = normalizeScene(gson.fromJson(args.get("sceneType"), String.class));
+                String theme = normalizeTheme(gson.fromJson(args.get("theme"), String.class));
+                int intensity = clampIntensity(gson.fromJson(args.get("intensity"), Integer.class));
+                String message = gson.fromJson(args.get("message"), String.class);
+                Location location = resolveTargetLocation(target);
+                if (location == null) {
+                        recordActionFailure("divineScene", "unknown player or structure: " + target);
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("failed to stage %s scene at %s (unknown target)", sceneType,
+                                                        target)));
+                        return;
+                }
+
+                World world = location.getWorld();
+                if (world == null) {
+                        recordActionFailure("divineScene", "target has no world: " + target);
+                        return;
+                }
+
+                if (sceneType.equals("judgment")) {
+                        theme = "wrath";
+                } else if (sceneType.equals("reward") || sceneType.equals("celebration")) {
+                        theme = "blessing";
+                } else if (sceneType.equals("spire")) {
+                        theme = "soul";
+                }
+
+                applyAtmosphere(world, sceneMood(sceneType, theme));
+                summonTemporaryLightPillar(location, theme, intensity, 12 + intensity * 8);
+                scheduleDivinePulses(location, theme, intensity);
+
+                if (intensity >= 2 || containsAny(sceneType, "reward", "celebration", "spire")) {
+                        spawnFireworkBurst(location, theme, intensity);
+                }
+                if (sceneType.equals("judgment") || intensity >= 3) {
+                        world.strikeLightningEffect(location);
+                }
+
+                Set<Player> viewers = new LinkedHashSet<>(playersNear(location, 96 + intensity * 24));
+                Player targetPlayer = GPTGOD.SERVER.getPlayer(target);
+                if (targetPlayer != null) {
+                        viewers.add(targetPlayer);
+                }
+                if (viewers.isEmpty()) {
+                        viewers.addAll(world.getPlayers());
+                }
+
+                String title = sceneTitle(sceneType);
+                String subtitle = sceneSubtitle(sceneType, message);
+                for (Player viewer : viewers) {
+                        sendDivineTitle(viewer, title, subtitle, theme);
+                        viewer.playSound(viewer.getLocation(), primarySound(theme), 1.0f, 0.75f);
+                }
+
+                if (sceneType.equals("trial") && targetPlayer != null) {
+                        int spawned = spawnTrialEntities(targetPlayer, theme, intensity);
+                        MemoryStore.createRewardDebt(targetPlayer.getName(), "Reward owed if the divine trial is survived",
+                                        net.bigyous.gptgodmc.memory.DivineDebt.Severity.MODERATE,
+                                        List.of("dropDivineReward", "blessPlayer", "summonSupplyChest"), 2);
+                        EventLogger.addLoggable(new GPTActionLoggable(
+                                        String.format("included %d trial entities in divine scene for %s", spawned,
+                                                        targetPlayer.getName())));
+                }
+
+                EventLogger.addLoggable(new GPTActionLoggable(
+                                String.format("staged a %s %s divine scene at %s", theme, sceneType, target)));
+                recordActionSuccess("divineScene",
+                                String.format("staged %s scene at %s with theme %s intensity %d", sceneType, target,
+                                                theme, intensity));
+        };
         private static Map<String, FunctionDeclaration> functionMap = Map.ofEntries(
                         Map.entry("decree", new FunctionDeclaration("decree",
                                         "display a heavenly decree in front of a specific player in the world. Use only to communicate displeasure in some action. Use no more than 12 words in the message.",
@@ -647,6 +1472,105 @@ public class GptActions {
                                         "brodcast a message to all players. Avoid repeating things that have already been said. Keep messages short, concise, and no more than 100 characters.",
                                         new Schema(Map.of("message", new Schema(Schema.Type.STRING, "the message"))),
                                         announce)),
+                        Map.entry("divineScene", new FunctionDeclaration("divineScene",
+                                        "stage a curated multi-step divine scene in one call: atmosphere, titles, sound, particles, fireworks, and a temporary light pillar. Use this for major moments when separate spectacle calls would be too slow.",
+                                        new Schema(Map.of("target",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "name of an online player or structure such as Soul Spire"),
+                                                        "sceneType", sceneSchema(),
+                                                        "theme", themeSchema(
+                                                                        "scene theme: divine, blessing, soul, fire, wrath, or void"),
+                                                        "intensity", intensitySchema(),
+                                                        "message",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "short subtitle or reason shown to nearby players"))),
+                                        divineScene)),
+                        Map.entry("divineOmen", new FunctionDeclaration("divineOmen",
+                                        "create a dramatic but safe visual omen around a player or structure using particles, sound, and optional lightning effects. Use before major rewards, warnings, objectives, or Soul Spire moments.",
+                                        new Schema(Map.of("target",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "name of an online player or structure such as Soul Spire"),
+                                                        "theme", themeSchema(
+                                                                        "visual theme: divine, blessing, soul, fire, wrath, or void"),
+                                                        "intensity", intensitySchema())),
+                                        divineOmen)),
+                        Map.entry("blessPlayer", new FunctionDeclaration("blessPlayer",
+                                        "bless a player with visible particles, sound, glow, and helpful temporary potion effects. Use for earned rewards and protection.",
+                                        new Schema(Map.of("playerName",
+                                                        new Schema(Schema.Type.STRING, "name of the player to bless"),
+                                                        "blessing", themeSchema(
+                                                                        "blessing theme: divine, blessing, soul, fire, or void"),
+                                                        "intensity", intensitySchema())),
+                                        blessPlayer)),
+                        Map.entry("cursePlayer", new FunctionDeclaration("cursePlayer",
+                                        "curse a player with theatrical non-lethal judgment: particles, sound, glow, and short negative effects. Use as a warning before harsher punishment.",
+                                        new Schema(Map.of("playerName",
+                                                        new Schema(Schema.Type.STRING, "name of the player to curse"),
+                                                        "curse", themeSchema(
+                                                                        "curse theme: wrath, void, soul, fire, or divine"),
+                                                        "intensity", intensitySchema())),
+                                        cursePlayer)),
+                        Map.entry("summonRitualCircle", new FunctionDeclaration("summonRitualCircle",
+                                        "summon a temporary glowing ritual circle around a player or structure. It restores the original blocks automatically; best for Soul Spire ceremonies, completed objectives, and climactic divine signs.",
+                                        new Schema(Map.of("target",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "name of an online player or structure such as Soul Spire"),
+                                                        "theme", themeSchema(
+                                                                        "circle theme: divine, blessing, soul, fire, wrath, or void"),
+                                                        "durationSeconds",
+                                                        new Schema(Schema.Type.INTEGER,
+                                                                        "duration from 5 to 60 seconds"))),
+                                        summonRitualCircle)),
+                        Map.entry("dropDivineReward", new FunctionDeclaration("dropDivineReward",
+                                        "drop a glowing named reward item visibly above a player instead of silently adding it to inventory. Use for memorable rewards.",
+                                        new Schema(Map.of("playerName",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "name of the player receiving the reward"),
+                                                        "itemId",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "minecraft item id, for example diamond or cooked_beef"),
+                                                        "count",
+                                                        new Schema(Schema.Type.INTEGER, "amount to drop, capped to one stack"),
+                                                        "displayName",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "short dramatic name shown above the glowing item"))),
+                                        dropDivineReward)),
+                        Map.entry("divineTitle", new FunctionDeclaration("divineTitle",
+                                        "show a dramatic full-screen title and subtitle to a player. Use for objective reveals, judgments, blessings, and climactic Soul Spire moments.",
+                                        new Schema(Map.of("playerName",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "name of the player who should see the title"),
+                                                        "title",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "short title, ideally under 32 characters"),
+                                                        "subtitle",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "short subtitle, ideally under 64 characters"),
+                                                        "theme", themeSchema(
+                                                                        "title theme: divine, blessing, soul, fire, wrath, or void"))),
+                                        divineTitle)),
+                        Map.entry("fireworkShow", new FunctionDeclaration("fireworkShow",
+                                        "launch a themed firework burst at a player or structure. Use to celebrate completions, rewards, arrivals, and ritual milestones.",
+                                        new Schema(Map.of("target",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "name of an online player or structure such as Soul Spire"),
+                                                        "theme", themeSchema(
+                                                                        "firework theme: divine, blessing, soul, fire, wrath, or void"),
+                                                        "intensity", intensitySchema())),
+                                        fireworkShow)),
+                        Map.entry("setDivineAtmosphere", new FunctionDeclaration("setDivineAtmosphere",
+                                        "change the island's weather and time as divine stagecraft. Use sparingly to make a major scene feel different.",
+                                        new Schema(Map.of("mood", atmosphereSchema())),
+                                        setDivineAtmosphere)),
+                        Map.entry("summonTrial", new FunctionDeclaration("summonTrial",
+                                        "summon a small bounded combat trial near one player with named glowing enemies. Use for fun challenges, judgment, or proving worth; intensity controls 2-4 mobs.",
+                                        new Schema(Map.of("playerName",
+                                                        new Schema(Schema.Type.STRING,
+                                                                        "name of the player to challenge"),
+                                                        "theme", themeSchema(
+                                                                        "trial theme: divine, soul, fire, wrath, or void"),
+                                                        "intensity", intensitySchema())),
+                                        summonTrial)),
                         Map.entry("giveItem", new FunctionDeclaration("giveItem", "give a player any amount of an item",
                                         new Schema(Map.of("playerName",
                                                         new Schema(Schema.Type.STRING, "name of the Player"), "itemId",
@@ -821,6 +1745,16 @@ public class GptActions {
                         args.addProperty("customName", customName);
                 }
                 spawnEntity.run(args);
+        }
+
+        public static void stageDivineScene(String target, String sceneType, String theme, int intensity, String message) {
+                JsonObject args = new JsonObject();
+                args.addProperty("target", target);
+                args.addProperty("sceneType", sceneType);
+                args.addProperty("theme", theme);
+                args.addProperty("intensity", intensity);
+                args.addProperty("message", message == null ? "" : message);
+                divineScene.run(args);
         }
 
         public static void onObjectiveExpired(String objective) {

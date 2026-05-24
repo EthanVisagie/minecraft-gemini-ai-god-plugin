@@ -39,6 +39,12 @@ public class GameLoop {
                 Behavior Guidance:
                 Communicate with all tools available to you.
                 Use a mixture of gift and punishment actions in addition to the text based communications.
+                Make divine moments visible. For major moments, prefer divineScene because it combines atmosphere, titles, particles, fireworks, sound, and a temporary light pillar in one reliable scene.
+                Pair major rewards, punishments, objective completions, and Soul Spire ritual steps with divineScene, divineOmen, divineTitle, fireworkShow, blessPlayer, cursePlayer, summonRitualCircle, setDivineAtmosphere, summonTrial, or dropDivineReward.
+                Prefer visible rewards such as dropDivineReward or summonSupplyChest over silent inventory gifts when the moment should feel memorable.
+                Use spectacle in short chains: atmosphere/title/omen first, then the reward/punishment/objective/trial, then a brief whisper or announce.
+                Use summonTrial for bounded fun challenges, not for routine punishment spam.
+                Reserve intensity 3 spectacle for rare climaxes; intensity 1 or 2 is enough for ordinary responses.
                 Set interesting objectives to perform around the island, especially if none exist yet.
                 Make objectives interesting and creative, keeping in mind your likes and dislikes when you create them.
                 Reward players who complete their objectives within a minecraft day cycle and punish those who do not.
@@ -228,7 +234,7 @@ public class GameLoop {
                 Thread.onSpinWait();
             }
             GPT_API.addMessage(
-                    "If any previous tool call failed, retry with corrected arguments. Otherwise, choose an interesting non-verbal action which has not already been done.");
+                    "If any previous tool call failed, retry with corrected arguments. Otherwise, choose an interesting visible non-verbal action, preferably divineScene for major moments, or a title, omen, fireworks, atmosphere shift, blessing, curse, ritual circle, visible reward, trial, entity, or world effect, which has not already been done.");
 
             GPT_API.send();
 
