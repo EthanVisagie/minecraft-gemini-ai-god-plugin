@@ -847,6 +847,8 @@ public class ServerInfoSummarizer {
         sb.append("Sacred Structure: " + StructureManager.getSacredStructureSummary() + "\n");
         sb.append("Ritual Phase: " + StructureManager.getRitualPhaseSummary() + "\n");
         sb.append("Ritual Awareness: " + StructureManager.getRitualAwarenessSummary() + "\n");
+        sb.append("Ritual Mechanics: " + StructureManager.getRitualMechanicsSummary() + "\n");
+        sb.append("Ritual Momentum: " + StructureManager.getRitualMomentumSummary() + "\n");
         sb.append("Recent Sacred Changes: " + StructureManager.getRecentSacredChangesSummary() + "\n");
         sb.append("Command Truth: " + CommandInsightTracker.getSummary() + "\n");
         sb.append(ActionOutcomeTracker.getSummary() + "\n");

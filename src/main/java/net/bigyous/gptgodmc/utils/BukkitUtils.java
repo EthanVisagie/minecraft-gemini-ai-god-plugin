@@ -2,6 +2,7 @@ package net.bigyous.gptgodmc.utils;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 
@@ -26,6 +27,9 @@ public class BukkitUtils {
     }
 
     public static boolean testBlocks(Location loc, boolean ignoreWater) {
+        if (loc == null || loc.getWorld() == null) {
+            return false;
+        }
         Location underplayer = new Location(loc.getWorld(), loc.getBlockX(), (loc.getBlockY() - 1), loc.getBlockZ());// Block
                                                                                                                      // under
                                                                                                                      // player
@@ -56,24 +60,46 @@ public class BukkitUtils {
     // moves the spawn up until a safe position is found
     // or returns null if none is found
     public static Location getSafeLocation(Location destination, boolean ignoreWater, int maxDistance) {
-
-        // copy location
-        Location newLoc = new Location(destination.getWorld(), destination.getBlockX(), destination.getBlockY(),
-                destination.getBlockZ());
-        int distance = 0;
-        while (!testBlocks(newLoc, ignoreWater)) {
-            distance++;
-            if (distance > maxDistance) {
-                GPTGOD.LOGGER.warn(String.format(
-                        "getSafeLocation hit max height for safety checks. No safe location found at (%f, %f, %f)",
-                        newLoc.getX(), newLoc.getY(), newLoc.getZ()));
-                return null;
-            }
-            // move the location up
-            newLoc.setY(newLoc.getY());
-
+        if (destination == null || destination.getWorld() == null || maxDistance < 0) {
+            return null;
         }
-        return newLoc;
+
+        World world = destination.getWorld();
+        int baseY = Math.max(world.getMinHeight() + 1,
+                Math.min(world.getMaxHeight() - 2, destination.getBlockY()));
+        int maxUp = Math.min(maxDistance, world.getMaxHeight() - 2 - baseY);
+        int maxDown = Math.min(maxDistance, baseY - (world.getMinHeight() + 1));
+
+        for (int offset = 0; offset <= maxDistance; offset++) {
+            if (offset <= maxUp) {
+                Location up = destination.clone();
+                up.setY(baseY + offset);
+                if (testBlocks(up, ignoreWater)) {
+                    return centerForTeleport(up, destination);
+                }
+            }
+            if (offset > 0 && offset <= maxDown) {
+                Location down = destination.clone();
+                down.setY(baseY - offset);
+                if (testBlocks(down, ignoreWater)) {
+                    return centerForTeleport(down, destination);
+                }
+            }
+        }
+
+        GPTGOD.LOGGER.warn(String.format(
+                "getSafeLocation found no safe location within %d blocks of (%f, %f, %f)",
+                maxDistance, destination.getX(), destination.getY(), destination.getZ()));
+        return null;
+    }
+
+    private static Location centerForTeleport(Location safeBlock, Location original) {
+        Location centered = safeBlock.clone();
+        centered.setX(safeBlock.getBlockX() + 0.5);
+        centered.setZ(safeBlock.getBlockZ() + 0.5);
+        centered.setYaw(original.getYaw());
+        centered.setPitch(original.getPitch());
+        return centered;
     }
 
     // ensures that the player who is being teleported by our blind god has at least

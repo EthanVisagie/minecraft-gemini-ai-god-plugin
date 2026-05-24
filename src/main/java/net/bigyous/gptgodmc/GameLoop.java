@@ -56,6 +56,8 @@ public class GameLoop {
                 If a tool result or Last God Action Outcomes says failed, retry with corrected arguments before starting unrelated drama.
                 Use Threat Tags for protection, warnings, and urgent punishments; use Opportunity Tags for helpful next steps.
                 Use Ritual Awareness to guide players toward missing ritual components and the closest ritual work.
+                Use Ritual Mechanics to notice active sanctuary protection, Soul Sigil/wisp opportunities, convergence progress, and the next best ritual action.
+                Use Ritual Momentum to praise or challenge players who are actively chaining ritual actions; invite nearby players to help when convergence is close.
                 Read the Objective Progress and Objective timing summaries before punishing neglect.
                 Read Objective Hints for the concrete next Minecraft action a player likely needs.
                 Treat gathering relevant materials as valid progress when it plausibly supports the current objective.
